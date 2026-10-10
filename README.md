@@ -1,4 +1,56 @@
-# 故宫 3D 虚拟游览
+# 故宫金蛋
+
+> 在 3D 故宫里找一颗金蛋：老师建房、学生扫码进入，限时寻找，先找到的排名靠前。基于 3D 故宫漫游项目派生，不带 `?room=` 参数时与原项目完全一致。
+
+## 联机找金蛋
+
+### 玩法
+
+1. 老师打开控制台 `/host/`（线上是 `/gugong-host/`），点「新建房间」，得到 4 位房间号和二维码。
+2. 学生扫码，或打开 `游戏地址?room=1234`，输入昵称（2–8 个字）进入。每房间最多 20 人，开局后也能加入。
+3. 老师选 3 / 5 / 8 分钟（默认 5），点「开始」。倒计时 3-2-1 后所有人传送到午门前。
+4. 服务端随机选一座殿作为藏蛋位置，随时间逐步给提示：
+
+| 时间 | 提示 |
+|------|------|
+| 0% | 所在区域 |
+| 20% | 所在殿名 |
+| 40% | 具体角落 |
+| 60% | 小地图出现金色闪点 |
+| 80% | 金蛋头顶出现光柱 |
+
+5. 走到蛋附近（水平约 1.5 m 内）自动提交，服务端复核后按到达先后排名。金蛋不会消失，别人仍可找到；你找到后它变半透明。
+6. 时间到或老师点「结束」，全屏显示排行榜和「金蛋在：xx」。老师可「再来一局」（同房间连续 3 局不重复藏蛋点）。
+
+玩家端：Tab 键或右上角按钮查看排行榜；断线自动重连（1/2/4…最长 10 秒），刷新页面不用重输昵称；服务不可用时显示「联机不可用」，仍可自由漫游。
+
+### 本地试玩
+
+```bash
+npm install
+npm run server:install      # 首次，安装服务端依赖
+npm run dev:all             # 前端 http://localhost:5173 + 联机服务 http://127.0.0.1:8787
+```
+
+1. 浏览器打开 `http://127.0.0.1:8787/host/` 新建房间，记下房间号。
+2. 另开 1–2 个标签页访问 `http://localhost:5173/?room=房间号`，各自输入昵称并点击进入。
+3. 控制台点「开始」。
+
+### 部署
+
+```bash
+npm run build                                   # 默认 base 为 /gugong/，产物在 dist/
+VITE_BASE=/ npm run build                       # 如需部署在根路径
+VITE_HUNT_WS=wss://域名/gugong-ws npm run build # 非默认的 WebSocket 地址
+```
+
+- 前端：把 `dist/` 放到服务器的 `/gugong/` 下。
+- 服务端与 Nginx 配置见 [server/README.md](./server/README.md)。
+- WebSocket 地址默认：https 页面用 `wss://{host}/gugong-ws`，http 页面用 `ws://{hostname}:8787`。
+
+---
+
+# 故宫 3D 虚拟游览（原项目说明）
 
 > 用 Three.js 程序化生成的北京故宫第一人称漫游：中轴线全部主要殿宇，加上东西两路的宫院、宫门和御花园，大部分殿宇、宫门都能走进去。
 
@@ -84,8 +136,13 @@ npm run preview
 ## 项目结构
 
 ```
-forbidden-city-3d/
-├── index.html / main.js / style.css     # 入口与主循环
+gugong-golden-egg/
+├── index.html / main.js / style.css     # 入口与主循环（main.js 仅多一个联机步骤）
+├── vite.config.js                        # base：build 为 /gugong/，dev 为 /
+├── shared/protocol.js                    # 客户端与服务端共用的消息与常量
+├── server/                               # 联机服务（Node + ws）、老师控制台 public/host.html
+├── scripts/dev-all.cjs                   # 同时启动前端与服务端
+├── src/game/                             # TreasureHunt.js 联机逻辑、eggSpots.json 藏蛋点（40 个）
 ├── public/textures/                      # 纹理（hd / sd 两档）
 ├── assets-src/                           # 纹理生成与处理脚本
 ├── src/
@@ -107,7 +164,7 @@ forbidden-city-3d/
 │   ├── controls/                         # 第一人称、虚拟摇杆
 │   ├── render/                           # 后期处理、阴影
 │   ├── utils/                            # 碰撞与可行走面、纹理、几何合并
-│   ├── ui/                               # 小地图、设置菜单
+│   ├── ui/                               # 小地图（含金蛋闪点）、设置菜单、HuntHUD 找蛋界面
 │   └── audio/Ambience.js                 # 环境音
 └── tests/                                # 自动化测试脚本
 ```
@@ -142,8 +199,14 @@ k.gate({ x: -80, z: 140, rot: FACE.east, style: 'wall', name: '某某门' });
 | `tests/stepwalk.cjs` | 用真实控制器按固定帧率逐帧走完中轴与两侧路线，检测"掉到台下""未到达途经点"。`node tests/stepwalk.cjs 60,10 0,1 all` |
 | `tests/shot.cjs` | 按给定相机位置批量截图：`node tests/shot.cjs 名称 x,y,z lx,ly,lz ...` |
 | `tests/walk.cjs` `realwalk.cjs` | 简单行走验证 |
+| `tests/hunt.cjs` | 联机端到端：起真实服务端 + 3 个浏览器客户端，覆盖无 room 参数、服务不可用、倒计时传送、找蛋排名、五级提示、重连、结算排行榜（30 项）。`npm run test:hunt` |
+| `tests/egg-reach.cjs` | 40 个藏蛋点在 60 / 10 帧下都能真实走到并触发拾取 |
+| `tests/dump-egg-spots.cjs` | 重新生成 `src/game/eggSpots.json` |
+| `server/test/rooms.test.js` | 房间状态机、排名、3 房并发上限、防作弊等单测（20 条）。`npm run test:server` |
 
-当前：`stepwalk` 全部 96 条路线（60 / 10 帧 × 慢走 / 快走）通过，`regression` 全部通过。
+测试用 `CHROME_PATH` 环境变量指定本机 Chrome；联机测试会占用 8787 端口。
+
+当前：`hunt` 30 项、`egg-reach` 80 项、服务端单测 20 条全部通过，`regression` 无报错。`stepwalk` 96 条路线中有 8 条未通过（午门→太和门、坤宁宫→御花园→神武门各 4 条，报"掉到台下"），在未改动的原项目上结果相同，属于继承的已知问题，与联机功能无关。
 
 ## 参数调整
 
