@@ -1,0 +1,298 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: #000;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 加载界面 */
+#loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  transition: opacity 0.5s ease;
+}
+
+.loading-content {
+  text-align: center;
+  max-width: 500px;
+  padding: 20px;
+}
+
+.loading-content h1 {
+  font-size: 32px;
+  margin-bottom: 40px;
+  color: #DAA520;
+  text-shadow: 0 0 20px rgba(218, 165, 32, 0.5);
+  letter-spacing: 4px;
+}
+
+.progress-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #DAA520, #FFD700);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(218, 165, 32, 0.8);
+}
+
+#progress-text {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 欢迎覆盖层 */
+.welcome-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 9000;
+}
+
+.welcome-content {
+  text-align: center;
+  padding: 40px;
+  background: rgba(26, 26, 46, 0.95);
+  border-radius: 16px;
+  border: 2px solid rgba(218, 165, 32, 0.3);
+  max-width: 500px;
+}
+
+.welcome-content h2 {
+  font-size: 28px;
+  margin-bottom: 20px;
+  color: #DAA520;
+}
+
+.welcome-content p {
+  font-size: 18px;
+  margin-bottom: 30px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.controls-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-top: 30px;
+}
+
+.hint-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.hint-item strong {
+  color: #DAA520;
+  font-size: 16px;
+}
+
+.hint-item span {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+
+/* 场景容器 */
+#scene-container {
+  width: 100%;
+  height: 100%;
+}
+
+#scene-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* 位置信息面板 */
+#location-panel {
+  pointer-events: none;
+  user-select: none;
+}
+
+#help-panel {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 画质按钮 */
+#quality-button {
+  transition: all 0.3s ease;
+}
+
+#quality-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.05);
+}
+
+#quality-button:active {
+  transform: scale(0.95);
+}
+
+/* 虚拟摇杆样式 */
+.joystick-base {
+  touch-action: none;
+}
+
+.joystick-stick {
+  touch-action: none;
+}
+
+/* 视角锁定按钮 */
+.look-lock-button {
+  transition: all 0.3s ease;
+  touch-action: manipulation;
+}
+
+.look-lock-button:active {
+  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  .loading-content h1 {
+    font-size: 24px;
+    margin-bottom: 30px;
+  }
+  
+  #progress-text {
+    font-size: 14px;
+  }
+  
+  #location-panel {
+    font-size: 14px;
+    padding: 10px 15px;
+  }
+  
+  #help-panel {
+    font-size: 12px;
+    padding: 10px 15px;
+    line-height: 1.5;
+  }
+  
+  #quality-button {
+    padding: 8px 16px;
+    font-size: 12px;
+  }
+  
+  .welcome-content {
+    max-width: 90%;
+    padding: 30px 20px;
+  }
+  
+  .welcome-content h2 {
+    font-size: 24px;
+  }
+  
+  .welcome-content p {
+    font-size: 16px;
+  }
+}
+
+/* 横屏提示（移动端） */
+@media (max-width: 768px) and (orientation: portrait) {
+  body::before {
+    content: "为了更好的体验，请横屏浏览";
+    position: fixed;
+    bottom: 190px;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+    padding: 10px 20px;
+    background: rgba(218, 165, 32, 0.9);
+    color: #000;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 10000;
+    animation: fadeInOut 3s ease-in-out infinite;
+  }
+}
+
+/* 打开全图时隐藏横屏提示，避免遮挡地图 */
+body.map-open::before {
+  display: none !important;
+}
+
+@keyframes fadeInOut {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 禁用文本选择 */
+body, button, div {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 滚动条隐藏 */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* 高对比度模式适配 */
+@media (prefers-contrast: high) {
+  #location-panel,
+  #help-panel {
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid #fff;
+  }
+  
+  #quality-button,
+  .look-lock-button {
+    border: 3px solid #fff;
+  }
+}
+
+/* 减少动画模式 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

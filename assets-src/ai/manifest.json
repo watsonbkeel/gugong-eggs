@@ -1,0 +1,209 @@
+{
+  "submissions": 23,
+  "items": {
+    "wall_red": {
+      "size": "1024x1024",
+      "submitted_at": 1791383803.02208,
+      "submit_http": 202,
+      "history": [
+        {
+          "task_id": "imgtask_dc14886c39b1444cad6fb972816d8b92",
+          "status": "failed"
+        }
+      ],
+      "task_id": "imgtask_aeb3d6c758494eefa592f2ee36213969",
+      "status": "downloaded",
+      "bytes": 1950467,
+      "finished_at": 1791383886.9389691
+    },
+    "wall_brick": {
+      "task_id": "imgtask_55609f9e81174b328277245576e934ac",
+      "size": "1024x1024",
+      "submitted_at": 1791383899.143574,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2071785,
+      "finished_at": 1791384022.1836522
+    },
+    "roof_tile": {
+      "task_id": "imgtask_79902533b1c7470795491e74303d5b30",
+      "size": "1024x1024",
+      "submitted_at": 1791383899.0946891,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 1755952,
+      "finished_at": 1791383972.639275
+    },
+    "ground_brick": {
+      "task_id": "imgtask_beec98795e664ef7be766e9cc8d9ac0e",
+      "size": "1024x1024",
+      "submitted_at": 1791383899.1021419,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2070808,
+      "finished_at": 1791384092.133659
+    },
+    "stone_slab": {
+      "task_id": "imgtask_1af3702eb8474c3e8017d66f8c2aa955",
+      "size": "1024x1024",
+      "submitted_at": 1791383899.428714,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2438551,
+      "finished_at": 1791384331.469128
+    },
+    "marble": {
+      "task_id": "imgtask_77e950bc763a498c856c316a2abfe5b3",
+      "size": "1024x1024",
+      "submitted_at": 1791383899.412065,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 1667023,
+      "finished_at": 1791384119.9873521
+    },
+    "sumeru_band": {
+      "task_id": "imgtask_3200cc18b07c4adb9cba91e672ad497f",
+      "size": "1536x1024",
+      "submitted_at": 1791383972.8398662,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 5216524,
+      "finished_at": 1791384318.949436
+    },
+    "wood_column": {
+      "task_id": "imgtask_60a9f07c295a46ab9d1e80f1c3b7b9dd",
+      "size": "1024x1024",
+      "submitted_at": 1791384022.337544,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2069007,
+      "finished_at": 1791384402.801412
+    },
+    "door_studded": {
+      "task_id": "imgtask_f7db1eb7b9184172986c850046d3709d",
+      "size": "1024x1536",
+      "submitted_at": 1791384092.346358,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2098198,
+      "finished_at": 1791384575.571527
+    },
+    "lattice_doors": {
+      "task_id": "imgtask_42629b261b1f4de2a8a996204cf12229",
+      "size": "1536x1024",
+      "submitted_at": 1791384120.525769,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2568569,
+      "finished_at": 1791384621.182751
+    },
+    "caihua_beam": {
+      "task_id": "imgtask_6824bbf72bde4ad3960929f76c997f6e",
+      "size": "1536x1024",
+      "submitted_at": 1791384319.090461,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2886674,
+      "finished_at": 1791384674.686253
+    },
+    "dougong_band": {
+      "task_id": "imgtask_7b2f5612b8c44e409b8e2cec2d40b3f9",
+      "size": "1536x1024",
+      "submitted_at": 1791384331.6038542,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 6236180,
+      "finished_at": 1791384903.809192
+    },
+    "rafters": {
+      "task_id": "imgtask_b1fe7a50e37e4d4d842b828991536a17",
+      "size": "1024x1024",
+      "submitted_at": 1791384403.212712,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 1718706,
+      "finished_at": 1791384889.394898
+    },
+    "balustrade": {
+      "task_id": "imgtask_c418415d9cb746af97827d804ad76b0a",
+      "size": "1536x1024",
+      "submitted_at": 1791384576.069419,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2366714,
+      "finished_at": 1791385138.708527
+    },
+    "yulu": {
+      "task_id": "imgtask_22a407bb5f9c40cda2bf34dcd076a552",
+      "size": "1024x1536",
+      "submitted_at": 1791384621.983093,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 3042058,
+      "finished_at": 1791385181.66015
+    },
+    "pebble_path": {
+      "task_id": "imgtask_55961a6e899f4becaa9506d60e170c53",
+      "size": "1024x1024",
+      "submitted_at": 1791384674.8939688,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2346569,
+      "finished_at": 1791385189.3848472
+    },
+    "bark": {
+      "task_id": "imgtask_809d7ff878894225896171bff7e870dd",
+      "size": "1024x1024",
+      "submitted_at": 1791384889.4918358,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2606056,
+      "finished_at": 1791385262.9685938
+    },
+    "foliage": {
+      "task_id": "imgtask_cfc5a2232eba4a6ba0b544525a34baf6",
+      "size": "1024x1024",
+      "submitted_at": 1791384904.5116959,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2331587,
+      "finished_at": 1791385389.306679
+    },
+    "rock": {
+      "task_id": "imgtask_25c4e6cb2d484015b025fa31308a4c4b",
+      "size": "1024x1024",
+      "submitted_at": 1791385139.554018,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 2130967,
+      "finished_at": 1791385504.08422
+    },
+    "grass": {
+      "task_id": "imgtask_15b3ef97898e464db8d2f659e12758c9",
+      "size": "1024x1024",
+      "submitted_at": 1791385181.904961,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 3081965,
+      "finished_at": 1791385561.220839
+    },
+    "water": {
+      "task_id": "imgtask_969b6d2a1d824a649b40574ee88e015f",
+      "size": "1024x1024",
+      "submitted_at": 1791385189.4800751,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 1878672,
+      "finished_at": 1791385746.356201
+    },
+    "skyline": {
+      "task_id": "imgtask_c6777bbd4443490ca07936f08bc4f245",
+      "size": "1536x1024",
+      "submitted_at": 1791385263.6766999,
+      "submit_http": 202,
+      "status": "downloaded",
+      "bytes": 795852,
+      "finished_at": 1791385786.148774
+    }
+  }
+}

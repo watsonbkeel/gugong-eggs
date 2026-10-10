@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>屋顶预览</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%); }
+    canvas { display: block; }
+    #info { position: absolute; top: 10px; left: 10px; color: #fff; font-family: monospace; font-size: 13px; 
+            background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 4px; pointer-events: none; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div id="info">加载中...</div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/node_modules/three/build/three.module.js",
+        "three/examples/": "/node_modules/three/examples/"
+      }
+    }
+  </script>
+  <script type="module" src="./roof-preview.js"></script>
+</body>
+</html>

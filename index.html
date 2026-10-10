@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>故宫 3D 虚拟游览 | Forbidden City 3D Tour</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 加载界面 -->
+  <div id="loading-screen">
+    <div class="loading-content">
+      <h1>故宫 3D 虚拟游览</h1>
+      <div class="progress-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="progress-text">加载中... 0%</p>
+    </div>
+  </div>
+
+  <!-- 欢迎提示（桌面端） -->
+  <div id="welcome-overlay" class="welcome-overlay">
+    <div class="welcome-content">
+      <h2>欢迎来到故宫</h2>
+      <p>点击屏幕开始游览</p>
+      <div class="controls-hint">
+        <div class="hint-item">
+          <strong>WASD / 方向键</strong>
+          <span>移动</span>
+        </div>
+        <div class="hint-item">
+          <strong>鼠标</strong>
+          <span>视角</span>
+        </div>
+        <div class="hint-item">
+          <strong>Shift</strong>
+          <span>冲刺</span>
+        </div>
+        <div class="hint-item">
+          <strong>空格</strong>
+          <span>跳跃</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主场景容器 -->
+  <div id="scene-container"></div>
+
+  <!-- Three.js 核心库 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+        "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <!-- 主程序入口 -->
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

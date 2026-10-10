@@ -1,0 +1,9 @@
+node_modules/
+dist/
+backups/
+outputs/
+.DS_Store
+*.log
+# 纹理原始生成图（53MB），成品纹理已在 public/textures
+assets-src/ai/raw/
+.workbuddy/
