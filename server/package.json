@@ -1,0 +1,16 @@
+{
+  "name": "gugong-golden-egg-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "故宫金蛋 联机找蛋服务端（单进程、全内存）",
+  "type": "module",
+  "main": "index.js",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
