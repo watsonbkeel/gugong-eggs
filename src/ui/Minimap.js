@@ -252,9 +252,34 @@ export class Minimap {
     }
   }
 
+  /** 设置/清除额外标记（金蛋提示）：{x, z} 世界坐标，传 null 清除。画成金色闪点。 */
+  setMarker(point) {
+    this.marker = point && Number.isFinite(point.x) && Number.isFinite(point.z) ? { x: point.x, z: point.z } : null;
+  }
+
+  /** 画金色闪点；clamp = 预览窗口外时贴边显示 */
+  drawMarker(ctx, p, radius) {
+    const t = performance.now() / 1000;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 6);
+    ctx.save();
+    ctx.fillStyle = `rgba(255, 200, 60, ${0.25 + 0.3 * pulse})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius * (1.8 + 1.2 * pulse), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffc83c';
+    ctx.strokeStyle = '#8a5a00';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   drawMap() {
     const ctx = this.ctx;
     ctx.drawImage(this.baseCanvas, 0, 0, this.mapSize, this.mapHeight);
+    if (this.marker) this.drawMarker(ctx, this.worldToMap(this.marker.x, this.marker.z), 5);
     this.drawPlayer(ctx, this.worldToMap(this.playerPosition.x, this.playerPosition.z), 5, 14);
   }
 
@@ -275,6 +300,16 @@ export class Minimap {
     const k = cw / this.previewSize;
     ctx.save();
     ctx.scale(k, k);
+    if (this.marker) {
+      // 标记相对玩家的偏移（地图像素），超出预览窗口就贴边，让人知道往哪个方向走
+      const mm = this.worldToMap(this.marker.x, this.marker.z);
+      const half = this.previewSize / 2 - 8;
+      let ox = (mm.x - pm.x) * (this.previewSize / view);
+      let oy = (mm.y - pm.y) * (this.previewSize / view);
+      const m = Math.max(Math.abs(ox), Math.abs(oy));
+      if (m > half) { ox *= half / m; oy *= half / m; }
+      this.drawMarker(ctx, { x: this.previewSize / 2 + ox, y: this.previewSize / 2 + oy }, 5);
+    }
     this.drawPlayer(ctx, { x: this.previewSize / 2, y: this.previewSize / 2 }, 5, 16);
     ctx.fillStyle = 'rgba(120, 30, 30, 0.9)';
     ctx.font = 'bold 11px sans-serif';

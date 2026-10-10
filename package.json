@@ -7,7 +7,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "npm --prefix server start",
+    "server:install": "npm --prefix server install",
+    "dev:all": "node scripts/dev-all.cjs",
+    "test:server": "npm --prefix server test",
+    "test:hunt": "node tests/hunt.cjs"
   },
   "dependencies": {
     "three": "^0.162.0"

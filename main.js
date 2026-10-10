@@ -14,6 +14,7 @@ import { Ambience } from './src/audio/Ambience.js';
 import { Minimap } from './src/ui/Minimap.js';
 import { SettingsMenu } from './src/ui/SettingsMenu.js';
 import { LAYOUT, PERFORMANCE } from './src/config/constants.js';
+import { TreasureHunt } from './src/game/TreasureHunt.js';
 
 /**
  * 故宫 3D 虚拟游览主程序
@@ -149,6 +150,21 @@ class ForbiddenCityApp {
         this.ambience = new Ambience();
         this.createUI();
         this.bindAudioStart();
+      }],
+      ['联机找金蛋', () => {
+        // 只有网址带 ?room=1234 才启用；联机相关的任何错误都不能影响自由游览
+        const room = TreasureHunt.roomFromUrl();
+        if (!room) return;
+        try {
+          this.hunt = new TreasureHunt({
+            room, scene: this.scene, camera: this.camera, controls: this.controls,
+            minimap: this.minimap, ambience: this.ambience, isMobile: this.isMobile,
+            getLocation: (pos) => this.collisionManager.getCurrentLocation(pos),
+          });
+        } catch (err) {
+          console.error('联机找金蛋初始化失败，已跳过', err);
+          this.hunt = null;
+        }
       }],
     ];
     
@@ -511,6 +527,7 @@ class ForbiddenCityApp {
       inTunnel: this.isInGatePassage(this.camera.position),
     });
     this.minimap?.update(this.camera);
+    this.hunt?.update(dt);
     if (now - this.lastShadowUpdate >= 250) {
       const distance = this.currentQuality === 'high' ? PERFORMANCE.LOD_DISTANCE_LOW : PERFORMANCE.LOD_DISTANCE_HIGH;
       this.shadowSetup.updateShadowLOD(this.camera, this.shadowObjects, distance);
@@ -536,6 +553,7 @@ class ForbiddenCityApp {
       this.controls.controls.removeEventListener('lock', this._startAudio);
       this.controls.dispose();
     }
+    this.hunt?.dispose();
     this.ambience?.dispose();
     this.minimap?.dispose();
     this.postProcessing?.dispose();
