@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 // 在场感验收：镜头起伏、脚步节奏、碰撞无漂移、环境音效生命周期。
 (async () => {
   const browser = await chromium.launch({
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless: true,
     args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
   });

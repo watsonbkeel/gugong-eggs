@@ -6,7 +6,7 @@ const [x0, z0] = s0.split(',').map(Number);
 const [x1, z1] = s1.split(',').map(Number);
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 480, height: 300 } });
   await page.goto('http://127.0.0.1:5173', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__forbiddenCityApp?.controls && document.querySelector('#loading-screen').style.display === 'none', null, { timeout: 180000 });

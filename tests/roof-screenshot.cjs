@@ -4,7 +4,7 @@ const path = require('node:path');
 (async () => {
   const outDir = '/Users/watson/Documents/Codex/故宫/outputs/dev';
   const browser = await chromium.launch({
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless: true,
     args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
   });

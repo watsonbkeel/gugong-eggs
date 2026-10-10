@@ -1,6 +1,6 @@
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'] });
   const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

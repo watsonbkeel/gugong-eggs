@@ -22,7 +22,7 @@ const ROUTES = {
 };
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
   await page.goto('http://127.0.0.1:5173', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__forbiddenCityApp?.collisionManager && document.querySelector('#loading-screen').style.display === 'none', null, { timeout: 180000 });

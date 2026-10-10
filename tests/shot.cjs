@@ -15,7 +15,7 @@ const fs = require('node:fs');
   const outDir = path.resolve(__dirname, '../../outputs/dev');
   fs.mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch({
-    executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     headless: true,
     args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'],
   });

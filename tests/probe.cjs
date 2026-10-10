@@ -1,7 +1,7 @@
 // 调试探针：node tests/probe.cjs "<JS 表达式，可用 a=app, THREE, v(x,z,feetY)>"
 const { chromium } = require('playwright');
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 800, height: 500 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

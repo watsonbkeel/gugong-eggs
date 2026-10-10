@@ -41,7 +41,7 @@ const SIDE_ROUTES = [
   const sprints = (process.argv[3] || '0,1').split(',').map(v => v === '1');
   const which = process.argv[4] || 'axis';
   const ROUTES_RUN = which === 'side' ? SIDE_ROUTES : which === 'all' ? [...AXIS_ROUTES, ...SIDE_ROUTES] : AXIS_ROUTES;
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
   await page.goto(process.env.PALACE_URL || 'http://127.0.0.1:5173', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__forbiddenCityApp?.controls && document.querySelector('#loading-screen').style.display === 'none', null, { timeout: 240000 });
