@@ -67,11 +67,10 @@ location /gugong-host/ {
 - 前端构建时若 WebSocket 地址不是上面这个约定，用 `VITE_HUNT_WS=wss://你的域名/路径 npm run build` 覆盖。
 - 控制台入口：`https://你的域名/gugong-host/`。
 
-## 部署步骤（给你自己部署时参考）
+## 部署步骤
 
 ```bash
-# 服务器上
-cd gugong-golden-egg
+# 服务器上，进入仓库根目录（克隆下来的目录名即可）
 npm --prefix server install --omit=dev
 PUBLIC_GAME_URL=https://你的域名/gugong/ PORT=8787 node server/index.js
 ```
@@ -81,5 +80,6 @@ PUBLIC_GAME_URL=https://你的域名/gugong/ PORT=8787 node server/index.js
 ## 防作弊与限制
 
 - `pos` 超出场景边界的丢弃；速度超过 15 m/s 的丢弃并计数，连续 5 次后该玩家的 `claim` 不再被信任。
-- `claim` 以服务端最近一次位置复核（水平距离 < 2.0 m），每局每人最多 3 次。
+- `claim` 以服务端最近一次位置复核（水平距离 < 2.0 m 且高度差 < 3.0 m）。客户端每局最多主动提交 3 次，服务端每人每局最多受理 5 次，超过直接拒绝。
+- 全局最多 200 个房间（`maxRooms`，代码内的保险丝，没有对应环境变量）。
 - 房间无连接超过 60 分钟自动销毁。

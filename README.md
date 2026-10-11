@@ -1,78 +1,233 @@
 # 故宫金蛋
 
-> 在 3D 故宫里找一颗金蛋：老师建房、学生扫码进入，限时寻找，先找到的排名靠前。基于 3D 故宫漫游项目派生，不带 `?room=` 参数时与原项目完全一致。
-
-## 联机找金蛋
-
-### 玩法
-
-1. 老师打开控制台 `/host/`（线上是 `/gugong-host/`），点「新建房间」，得到 4 位房间号和二维码。
-2. 学生扫码，或打开 `游戏地址?room=1234`，输入昵称（2–8 个字）进入。每房间最多 20 人，开局后也能加入。
-3. 老师选 3 / 5 / 8 分钟（默认 5），点「开始」。倒计时 3-2-1 后所有人传送到午门前。
-4. 服务端随机选一座殿作为藏蛋位置，随时间逐步给提示：
-
-| 时间 | 提示 |
-|------|------|
-| 0% | 所在区域 |
-| 20% | 所在殿名 |
-| 40% | 具体角落 |
-| 60% | 小地图出现金色闪点 |
-| 80% | 金蛋头顶出现光柱 |
-
-5. 走到蛋附近（水平约 1.5 m 内）自动提交，服务端复核后按到达先后排名。金蛋不会消失，别人仍可找到；你找到后它变半透明。
-6. 时间到或老师点「结束」，全屏显示排行榜和「金蛋在：xx」。老师可「再来一局」（同房间连续 3 局不重复藏蛋点）。
-
-玩家端：Tab 键或右上角按钮查看排行榜；断线自动重连（1/2/4…最长 10 秒），刷新页面不用重输昵称；服务不可用时显示「联机不可用」，仍可自由漫游。
-
-### 本地试玩
-
-```bash
-npm install
-npm run server:install      # 首次，安装服务端依赖
-npm run dev:all             # 前端 http://localhost:5173 + 联机服务 http://127.0.0.1:8787
-```
-
-1. 浏览器打开 `http://127.0.0.1:8787/host/` 新建房间，记下房间号。
-2. 另开 1–2 个标签页访问 `http://localhost:5173/?room=房间号`，各自输入昵称并点击进入。
-3. 控制台点「开始」。
-
-### 部署
-
-```bash
-npm run build                                   # 默认 base 为 /gugong/，产物在 dist/
-VITE_BASE=/ npm run build                       # 如需部署在根路径
-VITE_HUNT_WS=wss://域名/gugong-ws npm run build # 非默认的 WebSocket 地址
-```
-
-- 前端：把 `dist/` 放到服务器的 `/gugong/` 下。
-- 服务端与 Nginx 配置见 [server/README.md](./server/README.md)。
-- WebSocket 地址默认：https 页面用 `wss://{host}/gugong-ws`，http 页面用 `ws://{hostname}:8787`。
-
----
-
-# 故宫 3D 虚拟游览（原项目说明）
-
-> 用 Three.js 程序化生成的北京故宫第一人称漫游：中轴线全部主要殿宇，加上东西两路的宫院、宫门和御花园，大部分殿宇、宫门都能走进去。
+> 在 3D 故宫里找一颗金蛋：老师建房，学生扫码进入，限时寻找，先找到的排名靠前。
 
 ![Three.js](https://img.shields.io/badge/Three.js-r162-blue)
 ![Vite](https://img.shields.io/badge/Vite-5-purple)
+![Node](https://img.shields.io/badge/Node-%E2%89%A518-green)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## 项目简介
+故宫金蛋是一个多人限时寻宝小游戏。老师在控制台建一个房间，投屏出 4 位房间号和二维码；学生用手机或电脑扫码进入同一个 3D 故宫，输入昵称，开局后在宫殿里找一颗藏起来的金蛋。服务器按到达先后排名，随时间逐步放出提示。
+
+场景来自 [3D 故宫虚拟游览](https://github.com/watsonbkeel/forbidden-city-3d)（下称「原项目」）。本仓库是在它的基础上做出来的独立项目：不带 `?room=` 参数打开时，页面和原项目一样，是自由漫游，不会连接联机服务。
+
+## 目录
+
+- [玩法](#玩法)
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [联机服务](#联机服务)
+- [部署](#部署)
+- [藏蛋点](#藏蛋点)
+- [测试](#测试)
+- [和原项目的关系](#和原项目的关系)
+- [开发流程](#开发流程)
+- [附：3D 故宫场景说明](#附3d-故宫场景说明)
+
+## 玩法
+
+1. 老师打开控制台 `/host/`（线上经 Nginx 是 `/gugong-host/`），点「新建房间」，得到 4 位房间号和二维码。
+2. 学生扫码，或打开 `游戏地址?room=1234`，输入昵称（2–8 个字）进入。每房间最多 20 人，开局后也能加入。
+3. 老师选 3 / 5 / 8 分钟（默认 5），点「开始」。所有人立刻被传送到午门前（出生点），屏幕出现 3-2-1 倒数，倒数期间不能移动；倒数结束后开始计时。
+4. 服务器从 40 个藏蛋点里随机选一个，按局时长的比例逐级放出提示（5 分钟局正好每分钟一级）：
+
+| 局时长进度 | 提示级别 | 内容 |
+|-----------|---------|------|
+| 0%（倒数开始时就给出） | 0 区域 | 金蛋在某某一带，例如「东六宫」 |
+| 20% | 1 宫殿 | 具体殿名 |
+| 40% | 2 角落 | 殿内的具体位置，例如「殿内东南角，案几旁边」 |
+| 60% | 3 小地图 | 小地图（M 键）上出现金色闪点 |
+| 80% | 4 光柱 | 金蛋头顶升起一道 80 米高的金色光柱，远处可见 |
+
+5. 走到金蛋旁边（水平 1.5 m、高度差 2.5 m 以内）自动提交，服务器复核后按先后顺序排名。金蛋不会消失，后到的人仍然可以找到；自己找到后，金蛋变半透明。
+6. 时间到或老师点「结束」，全屏显示排行榜和「金蛋在：某某殿」。老师可点「再来一局」：房间号和玩家保留，成绩清空，同一房间连续 3 局不会藏在同一个点。
+
+玩家端：Tab 键（按住）或顶部「排行」按钮查看排行榜；断线自动重连（间隔 1 / 2 / 4 / 8 / 10 秒），刷新页面不用重新输入昵称；服务不可用时显示「联机不可用」，仍可自由漫游。
+
+老师端：控制台实时显示每个玩家的在线状态和所在位置，倒计时、当前提示级别、排行榜；「金蛋在」默认隐藏，点「显示」才看得到，避免投屏时被学生看到。
+
+## 快速开始
+
+需要 Node.js 18 或更高版本。
+
+```bash
+npm install
+npm run server:install      # 首次，安装服务端依赖（只有 ws 一个）
+npm run dev:all             # 前端 http://localhost:5173 + 联机服务 http://127.0.0.1:8787
+```
+
+1. 浏览器打开 `http://127.0.0.1:8787/host/`，点「新建房间」，记下房间号。
+2. 另开 1–2 个标签页访问 `http://localhost:5173/?room=房间号`，各自输入昵称进入。
+3. 回到控制台，点「开始」。
+
+只想看 3D 故宫、不玩联机：`npm run dev`，打开 `http://localhost:5173`（不带 `room` 参数）。
+
+## 项目结构
+
+只列金蛋相关的部分；其余是原项目的场景代码，见[附录](#附3d-故宫场景说明)。
+
+```
+gugong-eggs/
+├── main.js                    # 入口。比原项目多一个「联机找金蛋」初始化步骤（+18 行）
+├── vite.config.js             # base：build 为 /gugong/，dev 为 /；可用 VITE_BASE 覆盖
+├── shared/protocol.js         # 客户端与服务端共用的消息类型、常量、提示文案、昵称清洗
+├── src/
+│   ├── game/
+│   │   ├── TreasureHunt.js    # 客户端联机逻辑：WebSocket、金蛋与光柱、位置上报、拾取、重连
+│   │   └── eggSpots.json      # 40 个藏蛋点（游戏答案，仅服务端读取）
+│   └── ui/
+│       ├── HuntHUD.js         # 联机界面：状态条、倒数、昵称输入、排行榜、金色闪光、提示 toast
+│       └── Minimap.js         # 原文件 + 金色闪点（+35 行）
+├── server/                    # 联机服务（Node + ws），单进程、全内存
+│   ├── index.js               # HTTP + WebSocket，同一端口
+│   ├── rooms.js               # 房间状态机、排名、提示定时、防作弊（纯逻辑，不依赖网络，便于单测）
+│   ├── public/host.html       # 老师控制台
+│   ├── public/vendor/qrcode.js# 二维码库（Kazuhiko Arase，MIT）
+│   ├── test/rooms.test.js     # 单元测试（20 条）
+│   └── README.md              # 服务端环境变量、Nginx 配置、部署步骤
+├── scripts/dev-all.cjs        # 同时启动前端和服务端，Ctrl+C 一起退出
+└── tests/
+    ├── hunt.cjs               # 联机端到端（30 项）
+    ├── egg-reach.cjs          # 40 个藏蛋点在 60 / 10 帧下都能走到（80 项）
+    └── dump-egg-spots.cjs     # 重新生成 eggSpots.json
+```
+
+客户端联机代码对外只有三个入口：`TreasureHunt.roomFromUrl()`、`update(dt)`、`dispose()`，并且全部包在 try/catch 里——联机出任何问题都不会影响自由漫游。
+
+## 联机服务
+
+单进程、全内存，Node 18+，唯一依赖 `ws`。重启服务会丢失所有房间（设计如此）。同一端口提供：
+
+| 路径 | 作用 |
+|------|------|
+| `GET /health` | 健康检查：房间数、运行中房间数、在线人数 |
+| `GET /host/` | 老师控制台，无需登录 |
+| `POST /host/api/rooms` | 建房，返回 4 位房间号和 `hostToken` |
+| WebSocket（任意路径） | 玩家与控制台共用，消息格式见 [shared/protocol.js](./shared/protocol.js) |
+
+关键限制与防作弊规则（数值都在 `shared/protocol.js`）：
+
+| 项 | 规则 |
+|----|------|
+| 房间人数 | 每房间最多 20 人；满员时会踢掉离线超过 30 秒的人腾位置 |
+| 同时开局 | 最多 3 个房间同时处于「进行中」，第 4 个开局时提示「当前场次已满」 |
+| 房间总数 | 全局最多 200 个房间（保险丝），超过后建房失败 |
+| 房间回收 | 60 分钟没有任何连接的房间自动销毁 |
+| 位置上报 | 客户端 500 ms 一次，静止 2 秒停发；服务端间隔小于 350 ms 的丢弃 |
+| 越界 | 超出 x ±175、z −220 ~ 450 的位置丢弃 |
+| 速度 | 水平速度超过 15 m/s 的位置丢弃并计一次违规；**连续**违规 5 次后，该玩家本局的拾取不再被采信（上报一次合法位置即清零） |
+| 拾取复核 | 以服务端最近一次位置为准：水平 < 2.0 m 且高度差 < 3.0 m（比客户端的 1.5 m / 2.5 m 宽，容纳上报延迟）。客户端每局最多主动提交 3 次；服务端每人每局最多受理 5 次，超过直接拒绝 |
+| 局时长 | 只允许 3 / 5 / 8 分钟；设 `ALLOW_CUSTOM_DURATION=1` 可放开到 10 秒–10 分钟，仅供测试 |
+| 老师权限 | 建房时生成随机 `hostToken`，建局 / 结束 / 再来一局都要带；浏览器本地保存，换设备需要重新建房 |
+
+环境变量、Nginx 配置、部署步骤见 [server/README.md](./server/README.md)。
+
+## 部署
+
+```bash
+npm run build                                   # 默认 base 为 /gugong/，产物在 dist/
+VITE_BASE=/ npm run build                       # 部署在根路径
+VITE_HUNT_WS=wss://域名/gugong-ws npm run build # 非默认的 WebSocket 地址
+```
+
+- **前端**：把 `dist/` 放到服务器的 `/gugong/` 下（静态文件即可）。
+- **服务端**：服务器上 `npm --prefix server install --omit=dev`，然后 `PUBLIC_GAME_URL=https://你的域名/gugong/ node server/index.js`，建议用 systemd 或 pm2 守护。服务端需要同时带上 `shared/` 和 `src/game/eggSpots.json`（或用 `EGG_SPOTS_PATH` 指向别处）。
+- **Nginx**：需要两段反向代理——`/gugong-ws/` 转发 WebSocket，`/gugong-host/` 转发老师控制台。完整片段在 [server/README.md](./server/README.md)。
+- **必须 HTTPS**：页面在 https 下会自动连 `wss://{host}/gugong-ws`；http 页面则连 `ws://{hostname}:8787`（只用于本地开发）。
+
+构建产物里**不包含**藏蛋点文件，页面代码里查不到 40 个点的清单。但要注意：金蛋的坐标会在开局后由服务器下发给每个客户端（金蛋要显示出来，客户端必须知道位置），「提示分级」只是界面上的控制——会看网络消息的玩家可以从 WebSocket 数据里读到当局金蛋的坐标。殿名则要到本局结束才下发。如果要面对不信任的玩家，需要改成服务端在第 3 / 4 级提示时才下发坐标。
+
+## 藏蛋点
+
+`src/game/eggSpots.json` 是一个数组，共 40 个点，分布在 34 座殿、12 个区域：东六宫 7、西六宫 7、东路·宁寿宫一带 5、御花园 4、东路·文华殿一带 3、西路·武英殿一带 3、西路·建福宫一带 3、太和殿广场东侧 2、太和殿广场西侧 2、西路·慈宁宫一带 2、东路·奉先殿一带 1、西路·寿康宫一带 1。每项字段：
+
+| 字段 | 含义 |
+|------|------|
+| `id` | 点位编号 |
+| `x` `y` `z` | 世界坐标（金蛋悬浮在 `y` 之上 0.9 m） |
+| `area` / `hall` / `corner` | 提示用的区域名、殿名、角落描述 |
+| `approach` | 从出生点走到这个点的一条可行路线（用于可达性验证） |
+
+藏蛋规则：只用有独立名字的殿，不用廊房；宝座殿只取靠门一侧、宝座够不着的角落；每个点都要在 60 fps 慢走和 10 fps 快走两种帧率下真实走到并触发拾取。
+
+**原项目更新场景之后，必须重新导出并验证**（殿的位置、碰撞体可能变化）：
+
+```bash
+npm run dev                          # 保持运行
+node tests/dump-egg-spots.cjs        # 从运行中的场景读取房间清单与碰撞数据，重新生成 eggSpots.json
+node tests/egg-reach.cjs             # 验证 40 个点全部可达；有失败时加 --prune 删除失败的点后再跑一遍
+```
+
+服务端要求至少 20 个藏蛋点，否则拒绝启动。
+
+> **注意**：`eggSpots.json` 就是游戏答案。如果仓库公开，任何人都能读到全部 40 个藏蛋位置——想防着学生，请把仓库设为私有，或者部署时从私有渠道单独放这个文件。
+
+## 测试
+
+```bash
+npm run test:server    # 服务端单元测试，20 条，不需要浏览器
+```
+
+浏览器测试用 Playwright + 本机 Chrome（无头，SwiftShader 软件渲染）。Playwright 不在项目依赖里，需自行安装；用 `CHROME_PATH` 指定 Chrome 路径（默认 macOS 的 Google Chrome）；需要先在另一个终端运行 `npm run dev`。
+
+| 脚本 | 作用 |
+|------|------|
+| `npm run test:hunt` | 联机端到端：真实服务端 + 3 个浏览器客户端。覆盖无 room 参数、服务不可用、倒计时传送、找蛋排名、五级提示、重连、结算排行榜（30 项）。脚本自己启动服务端，要求 8787 端口空闲，局时长 60 秒，软件渲染下要跑几分钟 |
+| `tests/egg-reach.cjs` | 40 个藏蛋点在 60 / 10 帧下都能走到并触发拾取（80 项） |
+| `tests/smoke.cjs` | 页面能加载，无报错 |
+| `tests/regression.cjs` | 四座城门可通行、护城河与桥、画质切换、移动端摇杆等回归断言。会把截图和结果写到**仓库上两级目录**的 `outputs/`（需要该目录已存在） |
+| `tests/stepwalk.cjs` | 按固定帧率逐帧走路线。默认只走中轴（54 条）；`node tests/stepwalk.cjs 60,20,10 0,1 all` 走全部（144 条） |
+
+脚本访问的页面地址默认是 `http://127.0.0.1:5173`，可用 `PALACE_URL` 改。
+
+**`stepwalk` 有已知失败**：全部 144 条里 12 条未通过，都是「午门→太和门」和「坤宁宫→御花园→神武门」两条路线（各 6 种帧率 / 速度组合），报「掉到台下」。在金蛋功能加入之前的基线版本（`9a87be0`）上跑出的是同样的 12 条，路线和判定一致，与联机无关。做场景改动时，对比失败条数有没有增加即可。
+
+最近一次结果：服务端单测 20/20、`hunt` 30/30、`egg-reach` 80/80、`regression` 无报错、`stepwalk` 全量 12/144 失败（与基线相同）。
+
+## 和原项目的关系
+
+本仓库是**自包含、独立维护**的项目：3D 故宫场景代码就在这个仓库里，不依赖原项目的任何部署或代码，克隆下来就能构建、部署，不需要另外下载原项目。
+
+它**不是**原项目的 fork，Git 历史也和原项目不相连。创建时把原项目的某个版本整份复制过来，再叠加金蛋功能：
+
+- **来源版本**：原项目 `main` 的 `f0fb882`（2026-10-10，「README 按最新代码更新：跳跃、移动端方向盘、城台马道、室内陈设」）。此后两个项目各自演进。
+- **为什么独立**：原项目的方向是不断提升还原度，场景会越做越大、改动频繁；金蛋是限时的短局游戏，场景太大反而不适合。所以这里的场景代码归本仓库自己维护，按短局游戏的需要取舍，不跟随原项目的节奏。
+- **与来源版本的差异**（共 162 个文件）：132 个文件逐字节相同；13 个被修改；17 个是金蛋新增。
+  - 修改的 13 个：`main.js`（+18 行）、`src/ui/Minimap.js`（+35 行，金色闪点）、`package.json`（+5 个脚本）、`README.md`，以及 9 个测试脚本（只把 Chrome 路径改为读取 `CHROME_PATH` 环境变量）。
+  - 新增的 17 个：`server/` 下的服务端与控制台、`shared/protocol.js`、`src/game/`、`src/ui/HuntHUD.js`、`vite.config.js`、`scripts/dev-all.cjs`，以及 3 个测试脚本。
+- **金蛋对场景的依赖很窄**：`TreasureHunt` 只用到玩家控制器的 `stop / setPosition / lookAt`、小地图的 `setMarker`、环境音的 `ctx / muted / start`、碰撞管理器的 `getCurrentLocation`，以及 `LAYOUT.START_POSITION`、`LAYOUT.WUMEN_Z` 等几个常量。
+- **有两份常量镜像了场景的数值**：`shared/protocol.js` 里的 `WORLD_BOUNDARY`（对应 `src/config/constants.js` 的 `LAYOUT.BOUNDARY`）和 `MAX_SPEED`（对应冲刺速度 10 m/s 加余量）。改场景边界或移动速度时，这两处要同步改。
+
+## 开发流程
+
+**改动场景（殿宇、围墙、碰撞、尺寸）之后**，藏蛋点可能失效，按这个顺序处理：
+
+1. 如果改了场景边界或玩家移动速度，同步更新 `shared/protocol.js` 的 `WORLD_BOUNDARY` / `MAX_SPEED`。
+2. 重新导出并验证藏蛋点（见[藏蛋点](#藏蛋点)）：`dump-egg-spots` → `egg-reach`。服务端要求至少 20 个点。
+3. 跑测试：`npm run test:server`、`npm run test:hunt`、`tests/egg-reach.cjs`、`tests/regression.cjs`。`tests/stepwalk.cjs` 有继承来的失败（见[测试](#测试)），只需要确认失败条数没有增加。
+4. 重新构建、部署。
+
+只改联机逻辑、界面或服务端时，跑 `npm run test:server` 和 `npm run test:hunt` 即可。
+
+如果以后想把原项目的某些改进拿过来，没有自动化的办法，只能手工比对（两边没有共同的 Git 历史）：以来源版本 `f0fb882` 为基准，在原项目里 `git diff f0fb882..目标版本` 看改了什么，再挑需要的文件手工合并，合并后按上面的顺序重新验证。这不是日常流程，也不是必需的。
+
+## 附：3D 故宫场景说明
+
+以下是原项目的场景说明，金蛋没有改动这些内容。
+
+> 用 Three.js 程序化生成的北京故宫第一人称漫游：中轴线全部主要殿宇，加上东西两路的宫院、宫门和御花园，大部分殿宇、宫门都能走进去。
 
 所有建筑、纹理、天空都是代码生成的（纹理为少量位图 + 程序化绘制），没有外部模型文件。场景按真实平面格局缩小摆放：午门在南，神武门在北，东华门、西华门在东西两侧，可以直接走出宫城。
 
-## 场景内容
+### 场景内容
 
-### 中轴线（南 → 北）
-
-午门 → 金水河与金水桥 → 太和门 → 太和殿 → 中和殿 → 保和殿 → 乾清门 → 乾清宫 → 交泰殿 → 坤宁宫 → 御花园（钦安殿、堆秀山、万春亭、千秋亭、浮碧亭、澄瑞亭）→ 神武门
+**中轴线（南 → 北）**：午门 → 金水河与金水桥 → 太和门 → 太和殿 → 中和殿 → 保和殿 → 乾清门 → 乾清宫 → 交泰殿 → 坤宁宫 → 御花园（钦安殿、堆秀山、万春亭、千秋亭、浮碧亭、澄瑞亭）→ 神武门
 
 - 三大殿、后三宫各有自己的台基：从一座殿走到下一座殿，要先下台阶再上台阶。
 - 午门、神武门的门洞有顶，门扇打开后贴在门洞两侧的墙上。
 - 殿内有地面、天花和宝座，宝座在中轴上，参观路线从侧面绕过。
 
-### 两侧宫院
+**两侧宫院**
 
 | 区域 | 内容 |
 |------|------|
@@ -103,18 +258,7 @@ VITE_HUNT_WS=wss://域名/gugong-ws npm run build # 非默认的 WebSocket 地�
 - 匾额统一烘焙到一张图集
 - 高 / 低画质一键切换，移动端自动降低阴影分辨率和像素比
 
-## 快速开始
-
-```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build      # 产物在 dist/
-npm run preview
-```
-
-开发模式下，浏览器控制台可通过 `window.__forbiddenCityApp` 访问应用实例（调试和自动化测试用）。
-
-## 坐标约定
+### 坐标约定
 
 - +Z 朝北，**-X 朝东**（面朝北时的右手边）
 - 每座建筑本地坐标默认朝南（-Z）
@@ -131,101 +275,64 @@ npm run preview
 | 神武门 | 420 |
 
 - 场景边界：x ±175，z -220 ~ 450（东华门、西华门外留出一段街面）
+- 出生点：(0, 1.7, -200)，午门前
 - 玩家：视线高 1.7 m，步行 5 m/s，冲刺 10 m/s，单步可踏上 0.6 m；方向盘走 3 m/s、奔跑 7.5 m/s；起跳速度 7.2 m/s，重力 14 m/s²（跳高约 1.85 m）
 
-## 项目结构
+### 场景代码结构
 
 ```
-gugong-golden-egg/
-├── index.html / main.js / style.css     # 入口与主循环（main.js 仅多一个联机步骤）
-├── vite.config.js                        # base：build 为 /gugong/，dev 为 /
-├── shared/protocol.js                    # 客户端与服务端共用的消息与常量
-├── server/                               # 联机服务（Node + ws）、老师控制台 public/host.html
-├── scripts/dev-all.cjs                   # 同时启动前端与服务端
-├── src/game/                             # TreasureHunt.js 联机逻辑、eggSpots.json 藏蛋点（40 个）
-├── public/textures/                      # 纹理（hd / sd 两档）
-├── assets-src/                           # 纹理生成与处理脚本
-├── src/
-│   ├── config/constants.js               # 尺寸、布局、玩家、性能、后期参数
-│   ├── scene/
-│   │   ├── PalaceBuilder.js              # 中轴主要殿宇、城门
-│   │   ├── SideCourts.js                 # 两侧宫院、宫门、东西六宫、东西路、御花园院墙与钦安殿
-│   │   ├── palace/kit.js                 # CourtKit：宫墙、随墙门、门殿、城台门、可进入殿座、庑房、匾额
-│   │   ├── palace/gate.js                # 午门
-│   │   ├── palace/gateAscent.js          # 城台马道（登城踏道）与碰撞/可行走面
-│   │   ├── palace/interiors.js           # 室内陈设预设（大殿/居室/库房，可复用）
-│   │   ├── palace/river.js               # 金水河与金水桥
-│   │   ├── palace/colliders.js
-│   │   ├── Enclosure.js                  # 外城墙、角楼、午门外朝房
-│   │   ├── GardenBuilder.js              # 御花园（亭、水池、堆秀山、树木）
-│   │   ├── HallKit.js / RoofBuilder.js   # 殿身、台基、栏杆、屋顶
-│   │   ├── Layout.js / Environment.js
-│   │   └── sky/ garden/                  # 天空、植被与山石
-│   ├── controls/                         # 第一人称、虚拟摇杆
-│   ├── render/                           # 后期处理、阴影
-│   ├── utils/                            # 碰撞与可行走面、纹理、几何合并
-│   ├── ui/                               # 小地图（含金蛋闪点）、设置菜单、HuntHUD 找蛋界面
-│   └── audio/Ambience.js                 # 环境音
-└── tests/                                # 自动化测试脚本
+src/
+├── config/constants.js               # 尺寸、布局、玩家、性能、后期参数
+├── scene/
+│   ├── PalaceBuilder.js              # 中轴主要殿宇、城门
+│   ├── SideCourts.js                 # 两侧宫院、宫门、东西六宫、东西路、御花园院墙与钦安殿
+│   ├── palace/kit.js                 # CourtKit：宫墙、随墙门、门殿、城台门、可进入殿座、庑房、匾额
+│   ├── palace/gate.js                # 午门
+│   ├── palace/gateAscent.js          # 城台马道（登城踏道）与碰撞/可行走面
+│   ├── palace/interiors.js           # 室内陈设预设（大殿/居室/库房，可复用）
+│   ├── palace/river.js               # 金水河与金水桥
+│   ├── palace/colliders.js
+│   ├── Enclosure.js                  # 外城墙、角楼、午门外朝房
+│   ├── GardenBuilder.js              # 御花园（亭、水池、堆秀山、树木）
+│   ├── HallKit.js / RoofBuilder.js   # 殿身、台基、栏杆、屋顶
+│   ├── Layout.js / Environment.js
+│   └── sky/ garden/                  # 天空、植被与山石
+├── controls/                         # 第一人称、虚拟摇杆
+├── render/                           # 后期处理、阴影
+├── utils/                            # 碰撞与可行走面、纹理、几何合并
+├── ui/                               # 小地图、设置菜单
+└── audio/Ambience.js                 # 环境音
+public/textures/                      # 纹理（hd / sd 两档）
+assets-src/                           # 纹理生成与处理脚本
 ```
 
-### 碰撞与台阶
+**碰撞与台阶**
 
 - 碰撞体是 Box3，只登记身体高度范围内（约 0 ~ 3 m）的部分。
-- 可行走面有两类：`box`（平台、台面）和 `ramp`（台阶斜坡）。`getGroundHeight` 返回脚下不超过"脚高 + 单步高度"的最高面。
+- 可行走面有两类：`box`（平台、台面）和 `ramp`（台阶斜坡）。`getGroundHeight` 返回脚下不超过「脚高 + 单步高度」的最高面。
 - 移动按子步长逐步推进，每个子步重新计算地面高度；若玩家已落入台基内部，会被托回台面。
-- 跳跃/从高处走下时进入"空中"状态，按真实脚面做碰撞，落地后恢复贴地。
+- 跳跃 / 从高处走下时进入「空中」状态，按真实脚面做碰撞，落地后恢复贴地。
 - 城台马道的碰撞体按 0.5 m 切片，只能从下端口走上去，不能从侧面翻上。
 
-### 增加一座新殿
-
-在 `SideCourts.js` 里用 `CourtKit` 即可：
+**增加一座新殿**：在 `SideCourts.js` 里用 `CourtKit` 即可：
 
 ```js
 k.hall({ x: -100, z: 150, rot: FACE.south, w: 24, d: 14, colH: 5, ph: 1.2, enter: true, throne: true, name: '某某殿' });
 k.gate({ x: -80, z: 140, rot: FACE.east, style: 'wall', name: '某某门' });
 ```
 
-`enter: true` 会在正面中间一间开门并让门扇折向两侧；否则整座殿作为实心碰撞体。殿内陈设可套用 `palace/interiors.js` 里的预设（门口留出通道，高家具登记为掩体点，便于后续玩法）。
+`enter: true` 会在正面中间一间开门并让门扇折向两侧；否则整座殿作为实心碰撞体。殿内陈设可套用 `palace/interiors.js` 里的预设。
 
-## 测试
+**参数调整**（`src/config/constants.js`）：`DIMENSIONS` 主要建筑尺寸；`LAYOUT` 中轴位置与场景边界；`PLAYER` 身高、速度、台阶高度、跳跃与重力；`PERFORMANCE` 阴影与瓦片数；另有后期处理（SSAO、Bloom）参数。
 
-测试脚本用 Playwright + 本机 Chrome（headless，swiftshader），需要先启动 `npm run dev`。Playwright 不在项目依赖里，自行安装；并按本机路径修改脚本里的 `executablePath`。
+开发模式下，浏览器控制台可通过 `window.__forbiddenCityApp` 访问应用实例（调试和自动化测试用）。
 
-| 脚本 | 作用 |
-|------|------|
-| `tests/smoke.cjs` | 加载页面，检查无报错、碰撞体数量 |
-| `tests/regression.cjs` | 四座城门可通行、护城河与桥、御花园碰撞等回归断言 |
-| `tests/stepwalk.cjs` | 用真实控制器按固定帧率逐帧走完中轴与两侧路线，检测"掉到台下""未到达途经点"。`node tests/stepwalk.cjs 60,10 0,1 all` |
-| `tests/shot.cjs` | 按给定相机位置批量截图：`node tests/shot.cjs 名称 x,y,z lx,ly,lz ...` |
-| `tests/walk.cjs` `realwalk.cjs` | 简单行走验证 |
-| `tests/hunt.cjs` | 联机端到端：起真实服务端 + 3 个浏览器客户端，覆盖无 room 参数、服务不可用、倒计时传送、找蛋排名、五级提示、重连、结算排行榜（30 项）。`npm run test:hunt` |
-| `tests/egg-reach.cjs` | 40 个藏蛋点在 60 / 10 帧下都能真实走到并触发拾取 |
-| `tests/dump-egg-spots.cjs` | 重新生成 `src/game/eggSpots.json` |
-| `server/test/rooms.test.js` | 房间状态机、排名、3 房并发上限、防作弊等单测（20 条）。`npm run test:server` |
-
-测试用 `CHROME_PATH` 环境变量指定本机 Chrome；联机测试会占用 8787 端口。
-
-当前：`hunt` 30 项、`egg-reach` 80 项、服务端单测 20 条全部通过，`regression` 无报错。`stepwalk` 96 条路线中有 8 条未通过（午门→太和门、坤宁宫→御花园→神武门各 4 条，报"掉到台下"），在未改动的原项目上结果相同，属于继承的已知问题，与联机功能无关。
-
-## 参数调整
-
-`src/config/constants.js`：
-
-- `DIMENSIONS`：主要建筑尺寸
-- `LAYOUT`：中轴位置与场景边界
-- `PLAYER`：身高、速度、可踏台阶高度、方向盘速度与奔跑判定、跳跃与重力
-- `PERFORMANCE`：阴影、瓦片数等
-- 后期处理参数（SSAO、Bloom）
-
-## 常见问题
+### 常见问题
 
 - **黑屏**：看浏览器控制台；确认浏览器支持 WebGL。
 - **卡顿**：设置菜单切到低画质；或降低 `constants.js` 中的性能参数。
 - **点击后不能移动**：桌面端需先点击画面进入指针锁定，Esc 解锁。
 - **想嵌入微信小程序**：用 web-view 加载部署后的 HTTPS 页面（需企业主体小程序、已备案域名），建议默认低画质。
-
-## 说明
 
 建筑为学习与展示用途的程序化还原，按真实格局与比例缩小并做了简化，不是精确测绘模型。
 
@@ -237,3 +344,4 @@ MIT License，详见 [LICENSE](./LICENSE)。
 
 - [Three.js](https://threejs.org/)
 - [故宫博物院](https://www.dpm.org.cn/)（建筑参考资料）
+- [QR Code Generator for JavaScript](http://www.d-project.com/)（Kazuhiko Arase，MIT）
