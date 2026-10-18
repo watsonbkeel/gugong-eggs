@@ -34,6 +34,17 @@ const CSS = `
 .hunt-flash { position: fixed; inset: 0; z-index: 9100; pointer-events: none; opacity: 0; transition: opacity .8s ease-out;
   background: radial-gradient(circle at center, rgba(255,215,100,.95), rgba(255,200,60,.55) 55%, rgba(255,200,60,.15)); }
 .hunt-flash.on { opacity: 1; transition: opacity .05s; }
+.hunt-found { position: fixed; inset: 0; z-index: 9200; display: none; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none; }
+.hunt-found.show { display: flex; }
+.hunt-found .big { font: bold 58px Arial, "PingFang SC", "Microsoft YaHei", sans-serif; color: #ffd764; letter-spacing: 6px;
+  text-shadow: 0 0 26px rgba(255,200,60,.95), 0 0 60px rgba(255,170,0,.55), 0 6px 22px rgba(0,0,0,.85);
+  animation: hunt-pop .55s cubic-bezier(.2,1.5,.4,1) both; }
+.hunt-found .sub { margin-top: 12px; font: 20px Arial, "PingFang SC", "Microsoft YaHei", sans-serif; color: #fff2c0;
+  background: rgba(0,0,0,.45); padding: 6px 16px; border-radius: 999px; border: 1px solid rgba(255,215,100,.45);
+  text-shadow: 0 2px 10px rgba(0,0,0,.8); animation: hunt-fade .5s .12s both; }
+@keyframes hunt-pop { 0% { transform: scale(.35); opacity: 0; } 60% { transform: scale(1.14); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes hunt-fade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .hunt-board { position: fixed; inset: 0; z-index: 9100; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.7); }
 .hunt-board.show { display: flex; }
 .hunt-board .panel { width: min(440px, 92vw); max-height: 88vh; overflow: auto; box-sizing: border-box; padding: 20px;
@@ -70,6 +81,8 @@ const CSS = `
   .hunt-toast-box { top: 146px; right: 12px; }
   .hunt-count { font-size: 88px; }
   .hunt-count.go { font-size: 52px; }
+  .hunt-found .big { font-size: 40px; letter-spacing: 4px; }
+  .hunt-found .sub { font-size: 16px; }
 }
 @media (max-width: 768px) and (orientation: portrait) {
   .hunt-bar { top: 146px; width: calc(100vw - 24px); }
@@ -118,14 +131,15 @@ export class HuntHUD {
     this.boardBtn.type = 'button';
     this.boardBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleBoard(); });
     this.bar.append(text, this.boardBtn);
-    // 倒数、闪光、toast、排行榜
+    // 倒数、闪光、找到横幅、toast、排行榜
     this.count = el('div', 'hunt-count');
     this.flash = el('div', 'hunt-flash');
+    this.foundBox = el('div', 'hunt-found');
     this.toastBox = el('div', 'hunt-toast-box');
     this.board = el('div', 'hunt-board');
     this.board.addEventListener('click', (e) => { if (e.target === this.board && !this.boardFinal) this.hideBoard(); });
-    document.body.append(this.bar, this.count, this.flash, this.toastBox, this.board);
-    this.nodes.push(this.bar, this.count, this.flash, this.toastBox, this.board);
+    document.body.append(this.bar, this.count, this.flash, this.foundBox, this.toastBox, this.board);
+    this.nodes.push(this.bar, this.count, this.flash, this.foundBox, this.toastBox, this.board);
 
     // Tab 键：按住显示排行榜（桌面）
     this._onKey = (e) => {
@@ -250,6 +264,18 @@ export class HuntHUD {
     requestAnimationFrame(() => requestAnimationFrame(() => this.flash.classList.remove('on')));
   }
 
+  /** 找到金蛋：屏幕中央大字 + 副标题，约 2.2 秒后淡出。
+   *  每次重建子节点，保证 CSS 动画能重新触发。 */
+  foundBanner(big, sub = '') {
+    if (!this.foundBox) return;
+    this.foundBox.textContent = '';
+    this.foundBox.append(el('div', 'big', big));
+    if (sub) this.foundBox.append(el('div', 'sub', sub));
+    this.foundBox.classList.add('show');
+    clearTimeout(this._foundTimer);
+    this._foundTimer = setTimeout(() => this.foundBox.classList.remove('show'), 2200);
+  }
+
   toast(text, ms = 2000) {
     const t = el('div', 'hunt-toast', text);
     this.toastBox.appendChild(t);
@@ -260,21 +286,28 @@ export class HuntHUD {
   // ───────────── 排行榜 ─────────────
 
   /**
-   * rows: [{rank, nick, ms|null, me}]；opts.final = 终局（不可点背景关闭，带“金蛋在”）
+   * rows: [{rank, nick, foundCount, ms|null, me}]；eggHall：多蛋时的大殿名（最后一局的）；eggCount：总蛋数
    */
-  showBoard(rows, { final = false, eggHall = null, title = null } = {}) {
+  showBoard(rows, eggHall = null, eggCount = 1) {
+    const final = eggHall != null;
     this.boardFinal = final;
     this._boardVisible = true;
     this.board.textContent = '';
     const panel = el('div', 'panel');
-    panel.appendChild(el('h3', null, title || (final ? '本局结束' : '排行榜')));
-    if (final && eggHall) panel.appendChild(el('div', 'sub', `金蛋在：${eggHall}`));
-    else panel.appendChild(el('div', 'sub', rows.some((r) => r.rank) ? '已经找到金蛋的人' : '还没有人找到'));
+    panel.appendChild(el('h3', null, final ? '本局结束' : '排行榜'));
+    if (final && eggHall) {
+      panel.appendChild(el('div', 'sub', `金蛋在：${eggHall}`));
+    } else {
+      const anyFound = rows.some((r) => r.foundCount > 0);
+      panel.appendChild(el('div', 'sub', anyFound ? `找到金蛋的人（共 ${eggCount} 个）` : '还没有人找到'));
+    }
     for (const r of rows) {
       const row = el('div', `row${r.rank && r.rank <= 3 ? ` r${r.rank}` : ''}${r.me ? ' me' : ''}`);
       row.appendChild(el('div', 'rk', r.rank ? String(r.rank) : '-'));
       row.appendChild(el('div', 'nm', r.me ? `${r.nick}（我）` : r.nick));
-      row.appendChild(el('div', `tm${r.rank ? '' : ' none'}`, r.rank ? fmtTime(r.ms) : '未找到'));
+      const foundText = `${r.foundCount || 0}/${eggCount}`;
+      const timeText = r.ms > 0 ? ` · ${fmtTime(r.ms)}` : '';
+      row.appendChild(el('div', `tm${r.foundCount > 0 ? '' : ' none'}`, foundText + timeText));
       panel.appendChild(row);
     }
     const close = el('button', 'close', final ? '继续游览' : '关闭');
@@ -303,6 +336,7 @@ export class HuntHUD {
 
   dispose() {
     clearTimeout(this._flashTimer);
+    clearTimeout(this._foundTimer);
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('keyup', this._onKey);
     document.removeEventListener('pointerlockchange', this._onPL);

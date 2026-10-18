@@ -61,13 +61,13 @@ export class RoomManager {
       hostToken: randHex(16),
       phase: PHASE.WAITING,
       durationMs: DEFAULT_DURATION_MIN * 60000,
+      eggCount: 1,          // 本局蛋数量（1-3）
       startedAt: 0,
       endsAt: 0,
-      egg: null,
+      eggs: [],             // [{ id, x, y, z, spot, hintLevel }]
       lastEggIds: [],
       players: new Map(),
       hosts: new Set(),
-      hintLevel: -1,
       timers: [],
       createdAt: t,
       lastActiveAt: t,
@@ -187,7 +187,8 @@ export class RoomManager {
       player = {
         id: randHex(8), nick, conn, offlineAt: 0,
         lastPos: null, lastRaw: null, loc: '',
-        foundAt: null, rank: null, claims: 0, violations: 0,
+        foundEggs: [],        // [{ eggIndex, at }]
+        claims: 0, violations: 0,
       };
       room.players.set(player.id, player);
       this.log(`join code=${room.code} nick=${nick} players=${room.players.size}`);
@@ -271,22 +272,38 @@ export class RoomManager {
     if (player.violations >= POS_REPORT.MAX_VIOLATIONS) return this._reject(conn, '位置异常');
     const p = player.lastPos;
     if (!p) return this._reject(conn, '没有位置信息');
-    const egg = room.egg;
-    const h = Math.hypot(p.x - egg.x, p.z - egg.z);
-    const v = Math.abs(p.y - (egg.y + EGG_HOVER));
-    if (h >= CLAIM.SERVER_H || v >= CLAIM.SERVER_V) {
-      this.log(`claim_reject code=${room.code} nick=${player.nick} h=${h.toFixed(2)} v=${v.toFixed(2)}`);
+    
+    // 找还没找到的蛋
+    const foundIndices = new Set(player.foundEggs.map(x => x.eggIndex));
+    let foundEggIndex = -1;
+    for (let i = 0; i < room.eggs.length; i++) {
+      if (foundIndices.has(i)) continue;
+      const egg = room.eggs[i];
+      const h = Math.hypot(p.x - egg.x, p.z - egg.z);
+      const v = Math.abs(p.y - egg.y);
+      if (h < CLAIM.SERVER_H && v < CLAIM.SERVER_V) {
+        foundEggIndex = i;
+        break;
+      }
+    }
+    if (foundEggIndex === -1) {
+      this.log(`claim_reject code=${room.code} nick=${player.nick}`);
       return this._reject(conn, '离金蛋还有点距离');
     }
 
     // 通过
-    let rank = 1;
-    for (const q of room.players.values()) if (q.foundAt != null) rank++;
-    player.foundAt = t;
-    player.rank = rank;
     const elapsedMs = Math.max(0, t - room.startedAt);
-    this.log(`found code=${room.code} egg=${egg.id} nick=${player.nick} rank=${rank} elapsed=${elapsedMs}`);
-    this._broadcast(room, { type: S2C.FOUND, playerId: player.id, nick: player.nick, rank, elapsedMs });
+    player.foundEggs.push({ eggIndex: foundEggIndex, at: t });
+    this.log(`found code=${room.code} egg=${room.eggs[foundEggIndex].id} nick=${player.nick} eggIndex=${foundEggIndex} count=${player.foundEggs.length}/${room.eggs.length} elapsed=${elapsedMs}`);
+    this._broadcast(room, {
+      type: S2C.FOUND,
+      playerId: player.id,
+      nick: player.nick,
+      eggIndex: foundEggIndex,
+      foundCount: player.foundEggs.length,
+      total: room.eggs.length,
+      elapsedMs,
+    });
     this._pushRoomState(room);
   }
 
@@ -327,60 +344,87 @@ export class RoomManager {
     const room = this._hostRoom(conn, msg);
     if (!room) return;
     if (room.phase === PHASE.RUNNING) return this._sendError(conn, ERR.BAD_PHASE, '本局已经在进行');
-    if (room.phase === PHASE.ENDED) return this._sendError(conn, ERR.BAD_PHASE, '请先点“再来一局”');
+    if (room.phase === PHASE.ENDED) return this._sendError(conn, ERR.BAD_PHASE, '请先点"再来一局"');
     const dur = msg.durationMs == null ? DEFAULT_DURATION_MIN * 60000 : this._normDuration(msg.durationMs);
     if (dur == null) return this._sendError(conn, ERR.BAD_REQUEST, '时长只能是 3 / 5 / 8 分钟');
+    let count = msg.eggCount == null ? 1 : Math.floor(msg.eggCount);
+    if (count < 1 || count > 3) return this._sendError(conn, ERR.BAD_REQUEST, '金蛋数量只能是 1~3 个');
     if (this.runningCount() >= this.maxRunning) {
       return this._sendError(conn, ERR.SESSIONS_FULL, '当前场次已满，稍后再试');
     }
-    this.startRoom(room, dur);
+    this.startRoom(room, dur, count);
   }
 
-  startRoom(room, durationMs) {
+  startRoom(room, durationMs, eggCount) {
     const t = this.now();
-    const egg = this._pickEgg(room);
+    const eggs = this._pickEggs(room, eggCount);
     room.round++;
     room.phase = PHASE.RUNNING;
     room.durationMs = durationMs;
+    room.eggCount = eggCount;
     room.startedAt = t + COUNTDOWN_MS;
     room.endsAt = room.startedAt + durationMs;
-    room.egg = egg;
-    room.lastEggIds.push(egg.id);
-    if (room.lastEggIds.length > 3) room.lastEggIds.shift();
-    room.hintLevel = 0;
+    room.eggs = eggs.map((spot, idx) => ({
+      id: spot.id,
+      x: spot.x,
+      y: spot.y + EGG_HOVER,
+      z: spot.z,
+      spot,
+      hintLevel: 0,
+    }));
+    for (const egg of eggs) {
+      room.lastEggIds.push(egg.id);
+      if (room.lastEggIds.length > 6) room.lastEggIds.shift();  // 3个蛋×2轮
+    }
     for (const p of room.players.values()) {
-      p.foundAt = null; p.rank = null; p.claims = 0; p.violations = 0;
+      p.foundEggs = []; p.claims = 0; p.violations = 0;
       p.lastPos = null; p.lastRaw = null; // 传送会造成位置跳变，清掉旧位置
     }
     this._scheduleRound(room);
-    this.log(`start code=${room.code} egg=${egg.id} hall=${egg.hall} dur=${durationMs} players=${room.players.size}`);
+    this.log(`start code=${room.code} eggs=${eggs.map(e=>e.id).join(',')} dur=${durationMs} count=${eggCount} players=${room.players.size}`);
+    if (room.eggs.length > 0) this.log(`  egg0: x=${room.eggs[0].x.toFixed(1)} y=${room.eggs[0].y.toFixed(1)} z=${room.eggs[0].z.toFixed(1)} hall=${room.eggs[0].spot.hall}`);
     this._broadcast(room, { type: S2C.STATE, ...this.buildState(room) });
-    this._broadcast(room, { type: S2C.HINT, level: 0, text: hintText(0, egg) });
+    // 每个蛋各自发第 0 级提示
+    for (let i = 0; i < room.eggs.length; i++) {
+      this._broadcast(room, { type: S2C.HINT, eggIndex: i, level: 0, text: hintText(0, room.eggs[i].spot) });
+    }
     this._pushRoomState(room);
   }
 
-  _pickEgg(room) {
+  _pickEggs(room, count) {
     let pool = this.spots.filter((s) => !room.lastEggIds.includes(s.id));
-    if (pool.length === 0) pool = this.spots;
-    return pool[Math.floor(this.rng() * pool.length) % pool.length];
+    if (pool.length < count) pool = [...this.spots];  // 不够就用全部藏蛋点
+    const result = [];
+    for (let i = 0; i < count; i++) {
+      if (pool.length === 0) break;
+      const idx = Math.floor(this.rng() * pool.length) % pool.length;
+      result.push(pool[idx]);
+      pool.splice(idx, 1);  // 移除已选的，保证不重复
+    }
+    return result;
   }
 
   _scheduleRound(room) {
     this._clearTimers(room);
     const t = this.now();
     const round = room.round;
-    // 第 1~4 级提示（第 0 级开局即发）
-    for (let lv = 1; lv < HINT_RATIOS.length; lv++) {
-      const at = room.startedAt + room.durationMs * HINT_RATIOS[lv];
-      room.timers.push(this.timers.setTimeout(() => this._fireHint(room, round, lv), Math.max(0, at - t)));
+    // 每个蛋独立计时，第 1~4 级提示（第 0 级开局即发）
+    for (let eggIdx = 0; eggIdx < room.eggs.length; eggIdx++) {
+      for (let lv = 1; lv < HINT_RATIOS.length; lv++) {
+        const at = room.startedAt + room.durationMs * HINT_RATIOS[lv];
+        room.timers.push(this.timers.setTimeout(
+          () => this._fireHint(room, round, eggIdx, lv),
+          Math.max(0, at - t)
+        ));
+      }
     }
     room.timers.push(this.timers.setTimeout(() => this._endRoom(room, round, 'timeout'), Math.max(0, room.endsAt - t)));
   }
 
-  _fireHint(room, round, lv) {
+  _fireHint(room, round, eggIdx, lv) {
     if (room.round !== round || room.phase !== PHASE.RUNNING) return;
-    room.hintLevel = lv;
-    this._broadcast(room, { type: S2C.HINT, level: lv, text: hintText(lv, room.egg) });
+    room.eggs[eggIdx].hintLevel = lv;
+    this._broadcast(room, { type: S2C.HINT, eggIndex: eggIdx, level: lv, text: hintText(lv, room.eggs[eggIdx].spot) });
     this._pushRoomState(room);
   }
 
@@ -388,8 +432,9 @@ export class RoomManager {
     if (room.round !== round || room.phase !== PHASE.RUNNING) return;
     this._clearTimers(room);
     room.phase = PHASE.ENDED;
-    const found = [...room.players.values()].filter((p) => p.foundAt != null).length;
-    this.log(`end code=${room.code} egg=${room.egg.id} reason=${reason} found=${found}/${room.players.size}`);
+    const foundCounts = [...room.players.values()].map(p => p.foundEggs.length);
+    const totalFound = foundCounts.reduce((a, b) => a + b, 0);
+    this.log(`end code=${room.code} eggs=${room.eggs.map(e=>e.id).join(',')} reason=${reason} found=${totalFound}/${room.eggs.length * room.players.size}`);
     this._broadcast(room, { type: S2C.STATE, ...this.buildState(room) });
     this._pushRoomState(room);
   }
@@ -407,12 +452,12 @@ export class RoomManager {
     if (room.phase === PHASE.RUNNING) this._endRoom(room, room.round, 'host_reset');
     this._clearTimers(room);
     room.phase = PHASE.WAITING;
-    room.egg = null;
+    room.eggs = [];
+    room.eggCount = 1;
     room.startedAt = 0;
     room.endsAt = 0;
-    room.hintLevel = -1;
     for (const p of room.players.values()) {
-      p.foundAt = null; p.rank = null; p.claims = 0; p.violations = 0; p.lastPos = null; p.lastRaw = null;
+      p.foundEggs = []; p.claims = 0; p.violations = 0; p.lastPos = null; p.lastRaw = null;
     }
     this.log(`reset code=${room.code}`);
     this._broadcast(room, { type: S2C.STATE, ...this.buildState(room) });
@@ -430,23 +475,41 @@ export class RoomManager {
     const t = this.now();
     const running = room.phase === PHASE.RUNNING;
     const ended = room.phase === PHASE.ENDED;
-    const level = (running || ended) ? Math.max(0, Math.min(room.hintLevel, HINT_RATIOS.length - 1)) : -1;
-    const hints = [];
-    for (let i = 0; i <= level; i++) hints.push(hintText(i, room.egg));
+    
+    // 排行榜：按找到几个蛋排序，同分按最后一个蛋的时间
+    const players = [...room.players.values()].map((p) => {
+      const count = p.foundEggs.length;
+      const lastAt = count > 0 ? p.foundEggs[count - 1].at : null;
+      return { id: p.id, nick: p.nick, foundCount: count, lastAt, online: !!p.conn };
+    });
+    players.sort((a, b) => {
+      if (b.foundCount !== a.foundCount) return b.foundCount - a.foundCount;
+      if (a.lastAt == null && b.lastAt == null) return 0;
+      if (a.lastAt == null) return 1;
+      if (b.lastAt == null) return -1;
+      return a.lastAt - b.lastAt;
+    });
+    
     return {
       phase: room.phase,
       code: room.code,
-      players: [...room.players.values()].map((p) => ({
-        id: p.id, nick: p.nick, foundAt: p.foundAt, rank: p.rank, online: !!p.conn,
-      })),
+      players,
       durationMs: room.durationMs,
       startedAt: room.startedAt,
       endsAt: room.endsAt,
       round: room.round,
-      egg: (running || ended) && room.egg ? { x: room.egg.x, y: room.egg.y, z: room.egg.z } : null,
-      eggHall: ended && room.egg ? room.egg.hall : null,
-      hintLevel: level,
-      hints,
+      eggCount: room.eggCount,
+      eggs: (running || ended) ? room.eggs.map(e => {
+        const lv = Math.max(0, Math.min(e.hintLevel, HINT_RATIOS.length - 1));
+        const hints = [];
+        for (let i = 0; i <= lv; i++) hints.push(hintText(i, e.spot));
+        return {
+          x: e.x, y: e.y, z: e.z,
+          hall: ended ? e.spot.hall : null,
+          hintLevel: lv,
+          hints,
+        };
+      }) : [],
       serverTime: t,
     };
   }
@@ -454,12 +517,21 @@ export class RoomManager {
   buildRoomState(room) {
     const state = this.buildState(room);
     const t = this.now();
+    // 控制台看更多信息
     state.players = [...room.players.values()].map((p) => ({
-      id: p.id, nick: p.nick, foundAt: p.foundAt, rank: p.rank, online: !!p.conn,
+      id: p.id, nick: p.nick, foundCount: p.foundEggs.length, foundEggs: p.foundEggs, online: !!p.conn,
       loc: p.loc, lastPos: p.lastPos ? { x: p.lastPos.x, y: p.lastPos.y, z: p.lastPos.z, ageMs: t - p.lastPos.t } : null,
       violations: p.violations,
     }));
-    state.egg = room.egg ? { x: room.egg.x, y: room.egg.y, z: room.egg.z, id: room.egg.id, area: room.egg.area, hall: room.egg.hall, corner: room.egg.corner } : null;
+    state.eggs = room.eggs.map(e => {
+      const lv = Math.max(0, Math.min(e.hintLevel, HINT_RATIOS.length - 1));
+      const hints = [];
+      for (let i = 0; i <= lv; i++) hints.push(hintText(i, e.spot));
+      return {
+        x: e.x, y: e.y, z: e.z, id: e.id, area: e.spot.area, hall: e.spot.hall,
+        corner: e.spot.corner, hintLevel: lv, hints,
+      };
+    });
     state.global = {
       running: this.runningCount(),
       maxRunning: this.maxRunning,

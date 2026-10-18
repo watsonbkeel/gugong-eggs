@@ -80,15 +80,13 @@
     <div class="timer" id="timer">--:--</div>
     <div class="bar">
       <select id="dur"><option value="3">3 分钟</option><option value="5" selected>5 分钟</option><option value="8">8 分钟</option></select>
+      <input type="number" id="eggCount" min="1" max="3" value="1" style="width:60px;padding:9px 12px;border-radius:10px;background:#2a2318;color:var(--text);border:1px solid var(--line);font:inherit" title="金蛋数量">
       <button class="primary" id="btnStart">开始</button>
       <button class="danger" id="btnEnd">结束</button>
       <button id="btnReset">再来一局</button>
     </div>
     <div class="hint" id="hint">提示：—</div>
-    <div class="eggline" id="eggline">
-      <span>金蛋在：<span class="name hide" id="eggname">—</span></span>
-      <button id="btnEggToggle">显示</button>
-    </div>
+    <div id="egglines"></div>
   </section>
 
   <section class="panel" id="room-right">
@@ -213,30 +211,55 @@
     $('btnEnd').disabled = phase !== 'running';
     $('btnReset').disabled = phase === 'waiting';
     $('dur').disabled = phase !== 'waiting';
+    $('eggCount').disabled = phase !== 'waiting';
     if (phase === 'waiting') $('dur').value = String(Math.round(s.durationMs / 60000)) || '5';
 
-    // 提示
-    const lv = s.hintLevel;
-    $('hint').innerHTML = lv >= 0 && s.hints && s.hints.length
-      ? `提示 <b>${lv + 1}/5</b>：${esc(s.hints[s.hints.length - 1])}` : '提示：—';
+    // 提示：每个蛋当前解锁到第几级，逐条列出来
+    const eggsAll = s.eggs || [];
+    const hintParts = [];
+    for (let i = 0; i < eggsAll.length; i++) {
+      const e = eggsAll[i];
+      const lv = e && typeof e.hintLevel === 'number' ? e.hintLevel : -1;
+      if (lv < 0) continue;
+      const last = e.hints && e.hints.length ? e.hints[e.hints.length - 1] : '';
+      if (!last) continue;
+      hintParts.push(`${eggsAll.length > 1 ? `蛋${i + 1} ` : ''}<b>${lv + 1}/5</b>：${esc(last)}`);
+    }
+    $('hint').innerHTML = hintParts.length ? `提示 ${hintParts.join('　|　')}` : '提示：—';
 
-    // 金蛋
-    const e = s.egg;
-    $('eggname').textContent = e ? `${e.area} · ${e.hall} · ${e.corner}` : '—';
-    $('eggname').classList.toggle('hide', !eggShown);
-    $('btnEggToggle').textContent = eggShown ? '隐藏' : '显示';
+    // 金蛋（多个）
+    const eggs = s.eggs || [];
+    let html = '';
+    for (let i = 0; i < eggs.length; i++) {
+      const e = eggs[i];
+      const name = e ? `${e.area} · ${e.hall} · ${e.corner}` : '—';
+      const hideClass = eggShown ? '' : ' hide';
+      html += `<div class="eggline"><span>金蛋 ${i+1}：<span class="name${hideClass}">${name}</span></span></div>`;
+    }
+    $('egglines').innerHTML = html || '<div class="eggline"><span>金蛋：—</span></div>';
 
     // 玩家
     const ps = s.players || [];
+    const eggTotal = eggs.length;
+    const statOf = (p) => {
+      const fe = p.foundEggs || [];
+      const lastAt = fe.length ? fe[fe.length - 1].at : 0;
+      return { cnt: fe.length, totalMs: lastAt ? lastAt - s.startedAt : 0 };
+    };
     $('pcount').textContent = `（${ps.filter((p) => p.online).length} 在线 / ${ps.length}）`;
-    $('players').innerHTML = ps.map((p) => `<li class="row"><span class="l"><span class="dot ${p.online ? 'on' : ''}"></span><span class="nick">${esc(p.nick)}</span></span><span class="loc">${p.foundAt != null ? '✔ 已找到' : esc(p.loc || '')}</span></li>`).join('') || '<li class="row"><span class="loc">还没有人进房</span></li>';
+    $('players').innerHTML = ps.map((p) => {
+      const { cnt } = statOf(p);
+      const foundText = cnt > 0 ? `✔ ${cnt}/${eggTotal}` : '';
+      return `<li class="row"><span class="l"><span class="dot ${p.online ? 'on' : ''}"></span><span class="nick">${esc(p.nick)}</span></span><span class="loc">${foundText || esc(p.loc || '')}</span></li>`;
+    }).join('') || '<li class="row"><span class="loc">还没有人进房</span></li>';
 
-    // 排行榜
-    const found = ps.filter((p) => p.foundAt != null).sort((a, b) => a.rank - b.rank);
-    const rest = ps.filter((p) => p.foundAt == null);
-    $('fcount').textContent = phase === 'waiting' ? '' : `（${found.length}/${ps.length}）`;
-    const t0 = s.startedAt;
-    $('rank').innerHTML = found.map((p) => `<li class="rank r${p.rank}"><span class="n">${p.rank}</span><span class="nm">${esc(p.nick)}</span><span class="tm">${fmt(p.foundAt - t0)}</span></li>`).join('')
+    // 排行榜（多蛋：按找到数量倒序，相同数量按最后一个蛋的时间升序）
+    const ranked = ps.map((p) => ({ ...p, ...statOf(p) })).filter((p) => p.cnt > 0)
+      .sort((a, b) => b.cnt !== a.cnt ? b.cnt - a.cnt : a.totalMs - b.totalMs);
+    for (let i = 0; i < ranked.length; i++) ranked[i].rank = i + 1;
+    const rest = ps.filter((p) => statOf(p).cnt === 0);
+    $('fcount').textContent = phase === 'waiting' ? '' : `（${ranked.length}/${ps.length}）`;
+    $('rank').innerHTML = ranked.map((p) => `<li class="rank r${p.rank}"><span class="n">${p.rank}</span><span class="nm">${esc(p.nick)}</span><span class="tm">${p.cnt}/${eggTotal} · ${fmt(p.totalMs || 0)}</span></li>`).join('')
       + rest.map((p) => `<li class="rank wait"><span class="n">·</span><span class="nm">${esc(p.nick)}</span><span class="tm">${phase === 'waiting' ? '' : '寻找中'}</span></li>`).join('');
     $('room-right').classList.toggle('big', phase === 'ended');
 
@@ -265,10 +288,10 @@
   }
 
   $('btnNew').onclick = newRoom;
-  $('btnStart').onclick = () => send('host_start', { durationMs: Number($('dur').value) * 60000 });
+  $('btnStart').onclick = () => send('host_start', { durationMs: Number($('dur').value) * 60000, eggCount: Math.max(1, Math.min(3, Number($('eggCount').value) || 1)) });
   $('btnEnd').onclick = () => { if (confirm('确定提前结束这一局？')) send('host_end'); };
   $('btnReset').onclick = () => send('host_reset');
-  $('btnEggToggle').onclick = () => { eggShown = !eggShown; render(); };
+  $('egglines').onclick = () => { eggShown = !eggShown; render(); };
   $('rooms').onclick = (ev) => { const c = ev.target.closest('.chip'); if (!c) return; const code = c.dataset.code; if (code === curCode) return; enter(code); };
   setInterval(tick, 200);
 

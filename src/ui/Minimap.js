@@ -19,7 +19,7 @@ export class Minimap {
     
     // 地图范围：宫城 + 筒子河，竖长方形（与紫禁城南北长、东西窄的比例一致）
     this.worldBounds = { minX: -200, maxX: 200, minZ: -240, maxZ: 470 };
-    this.mapSize = 400; // 宽
+    this.mapSize = 800; // 宽（高清化：400→800）
     this.mapHeight = Math.round(this.mapSize * (710 / 400) * 0.82);
     this.scaleX = this.mapSize / 400;
     this.scaleZ = this.mapHeight / 710;
@@ -28,7 +28,7 @@ export class Minimap {
   }
   
   init() {
-    // 创建小地图容器
+    // 创建小地图容器，高度优先适配避免被裁切
     this.container = document.createElement('div');
     this.container.id = 'minimap';
     this.container.style.cssText = `
@@ -36,10 +36,8 @@ export class Minimap {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: ${this.mapSize}px;
-      max-width: 94vw;
-      max-height: 96vh;
-      overflow: auto;
+      max-width: min(${this.mapSize}px, 94vw);
+      max-height: 90vh;
       background: rgba(20, 20, 20, 0.92);
       border: 3px solid rgba(255, 215, 100, 0.8);
       border-radius: 8px;
@@ -47,6 +45,7 @@ export class Minimap {
       display: none;
       z-index: 1000;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      overflow: hidden;
     `;
     
     // 标题
@@ -54,7 +53,7 @@ export class Minimap {
     title.textContent = '故宫平面图';
     title.style.cssText = `
       color: #ffd764;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: bold;
       text-align: center;
       margin-bottom: 12px;
@@ -62,13 +61,15 @@ export class Minimap {
     `;
     this.container.appendChild(title);
     
-    // Canvas 地图
+    // Canvas 地图，按容器高度自适应显示完整地图
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.mapSize;
     this.canvas.height = this.mapHeight;
     this.canvas.style.cssText = `
       display: block;
-      width: 100%;
+      max-width: 100%;
+      max-height: calc(90vh - 120px);
+      width: auto;
       height: auto;
       background: rgba(240, 235, 220, 0.95);
       border: 1px solid rgba(100, 80, 60, 0.4);
@@ -81,7 +82,7 @@ export class Minimap {
     hint.textContent = this.previewEnabled ? '点击地图关闭' : '按 M 键关闭';
     hint.style.cssText = `
       color: #999;
-      font-size: 12px;
+      font-size: 14px;
       text-align: center;
       margin-top: 8px;
     `;
@@ -98,7 +99,7 @@ export class Minimap {
     window.addEventListener('keydown', this._onKeyDown);
     
     // 底图只画一次到高分辨率离屏画布，全图和预览都从这里取，避免每帧重绘全部建筑
-    this.baseScale = 3;
+    this.baseScale = 6; // 高清化：3→6，配合 mapSize 翻倍达到 4800px 物理分辨率
     this.baseCanvas = document.createElement('canvas');
     this.baseCanvas.width = this.mapSize * this.baseScale;
     this.baseCanvas.height = this.mapHeight * this.baseScale;
@@ -199,12 +200,15 @@ export class Minimap {
 
   drawLabel(text, x, y, bold, size = 10) {
     const ctx = this.ctx;
-    ctx.font = `${bold ? 'bold ' : ''}${size}px sans-serif`;
+    // 字号翻倍以配合高清地图
+    const fontSize = size * 2;
+    ctx.font = `${bold ? 'bold ' : ''}${fontSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const tw = ctx.measureText(text).width;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    ctx.fillRect(x - tw / 2 - 2, y - size / 2 - 1, tw + 4, size + 2);
+    // 白底更不透明，让文字更清晰
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fillRect(x - tw / 2 - 4, y - fontSize / 2 - 2, tw + 8, fontSize + 4);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
     ctx.fillText(text, x, y);
   }
@@ -220,18 +224,18 @@ export class Minimap {
       const [fill, stroke] = style[it.kind] ?? style.hall;
       const [x, y, w, h] = this.rectOf(it.x, it.z, it.w, it.d);
       ctx.fillStyle = fill;
-      ctx.fillRect(x, y, Math.max(w, 1.5), Math.max(h, 1.5));
+      ctx.fillRect(x, y, Math.max(w, 3), Math.max(h, 3)); // 高清地图下最小矩形翻倍
       ctx.strokeStyle = stroke;
-      ctx.lineWidth = 0.6;
-      ctx.strokeRect(x, y, Math.max(w, 1.5), Math.max(h, 1.5));
+      ctx.lineWidth = 1.2; // 两侧宫院边框线宽翻倍
+      ctx.strokeRect(x, y, Math.max(w, 3), Math.max(h, 3));
     }
-    // 只标有名字的主要殿宇与门（字号小，避免互相遮挡）
+    // 只标有名字的主要殿宇与门，高清地图下防碰撞阈值翻倍
     const placed = [];
     for (const it of this.items) {
       if (!it.name || it.kind === 'corridor') continue;
       const [x, y, w, h] = this.rectOf(it.x, it.z, it.w, it.d);
       const cx = x + w / 2, cy = y + h / 2;
-      if (placed.some(p => Math.abs(p.x - cx) < 22 && Math.abs(p.y - cy) < 9)) continue;
+      if (placed.some(p => Math.abs(p.x - cx) < 44 && Math.abs(p.y - cy) < 18)) continue;
       placed.push({ x: cx, y: cy });
       this.drawLabel(it.name, cx, cy, it.kind === 'hall', it.kind === 'hall' ? 9 : 8);
     }
@@ -252,9 +256,9 @@ export class Minimap {
     }
   }
 
-  /** 设置/清除额外标记（金蛋提示）：{x, z} 世界坐标，传 null 清除。画成金色闪点。 */
-  setMarker(point) {
-    this.marker = point && Number.isFinite(point.x) && Number.isFinite(point.z) ? { x: point.x, z: point.z } : null;
+  /** 设置/清除额外标记（金蛋提示）：points = [{x, z}] 世界坐标数组，传 [] 清除。画成金色闪点。 */
+  setMarkers(points) {
+    this.markers = Array.isArray(points) ? points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.z)) : [];
   }
 
   /** 画金色闪点；clamp = 预览窗口外时贴边显示 */
@@ -279,7 +283,11 @@ export class Minimap {
   drawMap() {
     const ctx = this.ctx;
     ctx.drawImage(this.baseCanvas, 0, 0, this.mapSize, this.mapHeight);
-    if (this.marker) this.drawMarker(ctx, this.worldToMap(this.marker.x, this.marker.z), 5);
+    if (this.markers && this.markers.length) {
+      for (const m of this.markers) {
+        this.drawMarker(ctx, this.worldToMap(m.x, m.z), 5);
+      }
+    }
     this.drawPlayer(ctx, this.worldToMap(this.playerPosition.x, this.playerPosition.z), 5, 14);
   }
 
@@ -300,15 +308,17 @@ export class Minimap {
     const k = cw / this.previewSize;
     ctx.save();
     ctx.scale(k, k);
-    if (this.marker) {
-      // 标记相对玩家的偏移（地图像素），超出预览窗口就贴边，让人知道往哪个方向走
-      const mm = this.worldToMap(this.marker.x, this.marker.z);
-      const half = this.previewSize / 2 - 8;
-      let ox = (mm.x - pm.x) * (this.previewSize / view);
-      let oy = (mm.y - pm.y) * (this.previewSize / view);
-      const m = Math.max(Math.abs(ox), Math.abs(oy));
-      if (m > half) { ox *= half / m; oy *= half / m; }
-      this.drawMarker(ctx, { x: this.previewSize / 2 + ox, y: this.previewSize / 2 + oy }, 5);
+    if (this.markers && this.markers.length) {
+      for (const marker of this.markers) {
+        // 标记相对玩家的偏移（地图像素），超出预览窗口就贴边，让人知道往哪个方向走
+        const mm = this.worldToMap(marker.x, marker.z);
+        const half = this.previewSize / 2 - 8;
+        let ox = (mm.x - pm.x) * (this.previewSize / view);
+        let oy = (mm.y - pm.y) * (this.previewSize / view);
+        const m = Math.max(Math.abs(ox), Math.abs(oy));
+        if (m > half) { ox *= half / m; oy *= half / m; }
+        this.drawMarker(ctx, { x: this.previewSize / 2 + ox, y: this.previewSize / 2 + oy }, 5);
+      }
     }
     this.drawPlayer(ctx, { x: this.previewSize / 2, y: this.previewSize / 2 }, 5, 16);
     ctx.fillStyle = 'rgba(120, 30, 30, 0.9)';
@@ -356,9 +366,9 @@ export class Minimap {
     ctx.fillStyle = '#f0ebdc';
     ctx.fillRect(0, 0, w, h);
     
-    // 绘制网格
+    // 绘制网格，高清地图下线宽翻倍
     ctx.strokeStyle = 'rgba(150, 140, 120, 0.2)';
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 1;
     const gridSize = w / 10;
     for (let i = 0; i <= 10; i++) {
       ctx.beginPath();
@@ -382,16 +392,16 @@ export class Minimap {
         ctx.fillRect(ox, oy, ow, oh);
         ctx.fillStyle = '#f0ebdc';
         ctx.fillRect(ix, iy, iw, ih);
-        ctx.strokeStyle = 'rgba(60, 110, 170, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(ox, oy, ow, oh);
-        ctx.strokeRect(ix, iy, iw, ih);
+      ctx.strokeStyle = 'rgba(60, 110, 170, 0.8)';
+      ctx.lineWidth = 3; // 高清地图下线宽翻倍
+      ctx.strokeRect(ox, oy, ow, oh);
+      ctx.strokeRect(ix, iy, iw, ih);
         continue;
       }
       if (type === 'outer_wall') {
         const [x, y, rw, rh] = this.rectOf(p.x, p.z, d.width, d.depth);
         ctx.strokeStyle = 'rgba(140, 60, 60, 0.8)';
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 8; // 外城墙线宽翻倍
         ctx.strokeRect(x, y, rw, rh);
         continue;
       }
@@ -414,7 +424,7 @@ export class Minimap {
       ctx.fillStyle = fillColor;
       ctx.fillRect(x, y, mapW, mapH);
       ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 2.4; // 建筑边框线宽翻倍
       ctx.strokeRect(x, y, mapW, mapH);
       if (name && showLabel) this.drawLabel(name, x + mapW / 2, y + mapH / 2, type === 'palace', type === 'palace' ? 11 : 10);
     }
@@ -422,15 +432,15 @@ export class Minimap {
     // 两侧宫院
     this.drawSideItems();
 
-    // 方位
+    // 方位标识字号放大
     ctx.fillStyle = 'rgba(100, 40, 40, 0.85)';
-    ctx.font = 'bold 12px sans-serif';
+    ctx.font = 'bold 24px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('北', w / 2, 10);
-    ctx.fillText('南', w / 2, h - 10);
-    ctx.fillText('东', w - 10, h / 2);
-    ctx.fillText('西', 10, h / 2);
+    ctx.fillText('北', w / 2, 20);
+    ctx.fillText('南', w / 2, h - 20);
+    ctx.fillText('东', w - 20, h / 2);
+    ctx.fillText('西', 20, h / 2);
   }
   
   update(camera) {

@@ -138,13 +138,13 @@ test('口令错误不能控制房间；时长非法被拒绝', () => {
   assert.equal(strict.mgr.getRoom(r2.code).phase, PHASE.WAITING);
 });
 
-function startRound(ctx, durationMs = 300000, nicks = ['小明同学', '小红同学', '小刚同学']) {
+function startRound(ctx, durationMs = 300000, nicks = ['小明同学', '小红同学', '小刚同学'], eggCount = 1) {
   const { mgr, clock } = ctx;
   const room = mgr.createRoom();
   const h = hostConn();
   mgr.handleMessage(h, JSON.stringify({ type: C2S.JOIN, room: room.code, role: 'host', token: room.hostToken }));
   const players = nicks.map((n) => join(mgr, room.code, n));
-  host(mgr, h, C2S.HOST_START, room, { durationMs });
+  host(mgr, h, C2S.HOST_START, room, { durationMs, eggCount });
   const R = mgr.getRoom(room.code);
   return { room, R, h, players, clock };
 }
@@ -155,10 +155,10 @@ test('开局：蛋点只下发坐标，不下发殿名；倒数 3 秒后才开�
   const { R, players } = startRound(ctx);
   const st = players[0].last(S2C.STATE);
   assert.equal(st.phase, PHASE.RUNNING);
-  assert.deepEqual(Object.keys(st.egg).sort(), ['x', 'y', 'z']);
-  assert.equal(st.eggHall, null);
-  assert.equal(st.hintLevel, 0);
-  assert.equal(st.hints.length, 1);
+  assert.deepEqual(Object.keys(st.eggs[0]).sort(), ['hall', 'hintLevel', 'hints', 'x', 'y', 'z']);
+  assert.equal(st.eggs[0]?.hall, null);
+  assert.equal(st.eggs[0]?.hintLevel, 0);
+  assert.equal(st.eggs[0]?.hints.length, 1);
   assert.equal(st.startedAt, R.startedAt);
   assert.equal(R.startedAt - (ctx.clock.now()), COUNTDOWN_MS);
 });
@@ -169,7 +169,7 @@ test('claim：在蛋旁通过并排名；午门外伪造 claim 被拦截', () =>
   const { R, players } = startRound(ctx);
   const [a, b, c] = players;
   clock.advance(COUNTDOWN_MS + 1000);
-  const egg = R.egg;
+  const egg = R.eggs[0];
 
   // C 在午门外伪造
   report(mgr, c, 0, 1.7, -200);
@@ -192,8 +192,10 @@ test('claim：在蛋旁通过并排名；午门外伪造 claim 被拦截', () =>
   for (const p of [a, b, c]) {
     const f = p.all(S2C.FOUND);
     assert.equal(f.length, 2);
-    assert.equal(f[0].rank, 1);
-    assert.equal(f[1].rank, 2);
+    assert.equal(f[0].eggIndex, 0);
+    assert.equal(f[1].eggIndex, 0);
+    assert.equal(f[0].foundCount, 1);
+    assert.equal(f[1].foundCount, 1);
     assert.equal(f[0].elapsedMs, 1000);
     assert.equal(f[1].elapsedMs, 5000);
   }
@@ -207,7 +209,7 @@ test('claim 水平距离 2.0m 为界', () => {
   const { mgr, clock } = ctx;
   const { R, players } = startRound(ctx);
   clock.advance(COUNTDOWN_MS + 500);
-  const egg = R.egg;
+  const egg = R.eggs[0];
   report(mgr, players[0], egg.x + 2.1, egg.y + 1.7, egg.z);
   mgr.handleMessage(players[0], JSON.stringify({ type: C2S.CLAIM }));
   assert.equal(players[0].all(S2C.FOUND).length, 0);
@@ -223,7 +225,7 @@ test('防作弊：越界与超速 pos 被丢弃，连续 5 次后 claim 不再�
   const { R, players } = startRound(ctx);
   const [a] = players;
   clock.advance(COUNTDOWN_MS + 500);
-  const egg = R.egg;
+  const egg = R.eggs[0];
   // 越界：不更新 lastPos
   report(mgr, a, 999, 1.7, 0);
   assert.equal(R.players.get(a.ctx.playerId).lastPos, null);
@@ -272,8 +274,8 @@ test('提示按 0/20/40/60/80% 递进，到点自动结束', () => {
   assert.equal(R.phase, PHASE.ENDED);
   const st = a.last(S2C.STATE);
   assert.equal(st.phase, PHASE.ENDED);
-  assert.equal(st.hints.length, 5);
-  assert.equal(st.eggHall, R.egg.hall);
+  assert.equal(st.eggs[0]?.hints.length, 5);
+  assert.equal(st.eggs[0]?.hall, R.eggs[0].spot.hall);
   assert.equal(clock.pendingCount, 0, '结束后不应遗留定时器');
   assert.equal(HINT_RATIOS.length, 5);
   assert.ok(t0 > 0);
@@ -285,7 +287,7 @@ test('重连：带 playerId 回来，成绩与名次保留，旧连接被踢', (
   const { R, players } = startRound(ctx);
   const [a] = players;
   clock.advance(COUNTDOWN_MS + 1000);
-  const egg = R.egg;
+  const egg = R.eggs[0];
   report(mgr, a, egg.x, egg.y + 1.7, egg.z);
   mgr.handleMessage(a, JSON.stringify({ type: C2S.CLAIM }));
   const pid = a.ctx.playerId;
@@ -299,8 +301,8 @@ test('重连：带 playerId 回来，成绩与名次保留，旧连接被踢', (
   const w = a2.last(S2C.WELCOME);
   assert.equal(w.playerId, pid);
   const me = w.state.players.find((p) => p.id === pid);
-  assert.equal(me.rank, 1);
-  assert.equal(w.state.egg.x, egg.x);
+  assert.equal(me.foundCount, 1);
+  assert.equal(w.state.eggs[0].x, egg.x);
   assert.equal(R.players.size, 3);
 
   // 同一 playerId 在另一个连接上再 join：旧连接被关闭
@@ -313,18 +315,18 @@ test('再来一局：房间码与玩家保留，成绩清空，蛋点不与最�
   const ctx = setup();
   const { mgr, clock } = ctx;
   const { room, R, h, players } = startRound(ctx);
-  const ids = [R.egg.id];
+  const ids = [R.eggs[0].id];
   for (let i = 0; i < 6; i++) {
     host(mgr, h, C2S.HOST_END, room);
     host(mgr, h, C2S.HOST_RESET, room);
     assert.equal(R.phase, PHASE.WAITING);
     assert.equal(R.players.size, 3);
-    assert.equal(players[0].last(S2C.STATE).egg, null);
+    assert.deepEqual(players[0].last(S2C.STATE).eggs, []);
     host(mgr, h, C2S.HOST_START, room, { durationMs: 180000 });
     assert.equal(R.phase, PHASE.RUNNING);
     const recent = ids.slice(-3);
-    assert.ok(!recent.includes(R.egg.id), `第 ${i + 2} 局蛋点 ${R.egg.id} 与最近 3 局重复 ${recent}`);
-    ids.push(R.egg.id);
+    assert.ok(!recent.includes(R.eggs[0].id), `第 ${i + 2} 局蛋点 ${R.eggs[0].id} 与最近 3 局重复 ${recent}`);
+    ids.push(R.eggs[0].id);
   }
   assert.ok(clock.now() > 0);
 });
@@ -349,9 +351,9 @@ test('开局后进入的玩家按当前状态参加', () => {
   const late = join(mgr, R.code, '迟到同学');
   const st = late.last(S2C.WELCOME).state;
   assert.equal(st.phase, PHASE.RUNNING);
-  assert.ok(st.egg);
-  assert.equal(st.hintLevel, 1); // 开局 90 秒：已解锁第 1 级（宫殿）
-  assert.equal(st.hints.length, 2);
+  assert.ok(st.eggs[0]);
+  assert.equal(st.eggs[0]?.hintLevel, 1); // 开局 90 秒：已解锁第 1 级（宫殿）
+  assert.equal(st.eggs[0]?.hints.length, 2);
 });
 
 test('控制台口令校验与 room_state 内容', () => {
@@ -363,7 +365,7 @@ test('控制台口令校验与 room_state 内容', () => {
   assert.equal(bad.last(S2C.ERROR).code, ERR.BAD_TOKEN);
   mgr.tick();
   const rs = h.last(S2C.ROOM_STATE);
-  assert.equal(rs.egg.hall, R.egg.hall);
+  assert.equal(rs.eggs[0].hall, R.eggs[0].spot.hall);
   assert.equal(rs.global.running, 1);
   assert.equal(rs.players.length, 3);
 });

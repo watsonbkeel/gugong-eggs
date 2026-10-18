@@ -7,7 +7,7 @@ export const C2S = Object.freeze({
   POS: 'pos',               // { x, y, z, loc? }   最多 2 Hz
   CLAIM: 'claim',           // {}
   SYNC: 'sync',             // {}
-  HOST_START: 'host_start', // { code, hostToken, durationMs }
+  HOST_START: 'host_start', // { code, hostToken, durationMs, eggCount }
   HOST_END: 'host_end',     // { code, hostToken }
   HOST_RESET: 'host_reset', // { code, hostToken }
 });
@@ -15,10 +15,10 @@ export const C2S = Object.freeze({
 /** 服务器 → 客户端 */
 export const S2C = Object.freeze({
   WELCOME: 'welcome',       // { playerId, state }      （host 角色没有 playerId，附带 room_state）
-  STATE: 'state',           // 完整状态，见 buildState()
+  STATE: 'state',           // 完整状态，见 buildState()。多蛋模式：eggs: [{id,x,y,z,spot}]
   PLAYERS: 'players',       // { count, list }
-  HINT: 'hint',             // { level, text }
-  FOUND: 'found',           // { playerId, nick, rank, elapsedMs }
+  HINT: 'hint',             // { eggIndex, level, text }  eggIndex 0-based
+  FOUND: 'found',           // { playerId, nick, eggIndex, foundCount, total, elapsedMs }
   ERROR: 'error',           // { code, message }
   ROOM_STATE: 'room_state', // 仅发给控制台
 });
@@ -77,7 +77,7 @@ export const DEFAULT_DURATION_MIN = 5;
 /** 提示文案。spot 是 eggSpots.json 的一项。 */
 export function hintText(level, spot) {
   switch (level) {
-    case HINT_LEVELS.AREA: return `金蛋在${spot.area}一带`;
+    case HINT_LEVELS.AREA: return `金蛋在${spot.area}${/一带$/.test(spot.area) ? '' : '一带'}`;
     case HINT_LEVELS.HALL: return `金蛋在${spot.hall}里`;
     case HINT_LEVELS.CORNER: return spot.corner;
     case HINT_LEVELS.MINIMAP: return '小地图上出现了金色闪点';

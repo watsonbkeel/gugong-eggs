@@ -26,6 +26,12 @@ const CLAIM_PENDING_TIMEOUT_MS = 2500;
 function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* 隐私模式等 */ } }
 
+/** 毫秒 → m:ss */
+function fmtMs(ms) {
+  const s = Math.max(0, Math.floor((ms || 0) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 export class TreasureHunt {
   /** 从网址取房间号；没有或不合法返回 null */
   static roomFromUrl(search = (typeof location !== 'undefined' ? location.search : '')) {
@@ -48,7 +54,7 @@ export class TreasureHunt {
    * @param {THREE.Scene} o.scene
    * @param {THREE.Camera} o.camera
    * @param {object} o.controls        FirstPersonControls
-   * @param {object} [o.minimap]       需要有 setMarker({x,z}|null)
+   * @param {object} [o.minimap]       需要有 setMarkers([{x,z}])
    * @param {object} [o.ambience]      需要有 ctx / muted / start()
    * @param {(pos:THREE.Vector3)=>string} [o.getLocation]
    * @param {boolean} [o.isMobile]
@@ -82,14 +88,16 @@ export class TreasureHunt {
     this.startedAt = 0;
     this.endsAt = 0;
     this.durationMs = 0;
-    this.egg = null;         // {x,y,z}
-    this.eggHall = null;
-    this.hintLevel = -1;
-    this.hints = [];
-    this.players = new Map(); // id → {id,nick,online,rank,ms}
-    this.selfFound = false;
-    this.selfRank = 0;
-    this.selfMs = 0;
+    this.eggCount = 1;       // 本局几个蛋
+    this.eggs = [];          // [{x,y,z,hintLevel,found}, ...] 服务端下发的蛋坐标与状态
+    this.eggHall = null;     // 局终后显示（单蛋模式遗留字段，多蛋时不用）
+    this.hintLevel = -1;     // 最大提示等级（全局，供小地图判断）
+    this.hints = [];         // 遗留字段（旧逻辑用的全局提示文本数组，多蛋时不用）
+    this.players = new Map(); // id → {id,nick,online,foundCount,lastAt}
+    this.selfFoundCount = 0; // 我找到几个
+    this.selfFoundEggs = []; // 我找到的蛋 [{eggIndex,at}, ...]
+    this.selfRank = 0;       // 遗留字段
+    this.selfMs = 0;         // 遗留字段
 
     // 本地拾取与上报
     this.claimsUsed = 0;
@@ -102,11 +110,9 @@ export class TreasureHunt {
     this.endedBoardRound = -2;
     this.sawRunning = false;
 
-    // 金蛋与光柱
-    this.eggGroup = null;
-    this.eggMesh = null;
-    this.beam = null;
-    this.eggMat = null;
+    // 金蛋对象数组（场景中的 3D 物体）
+    this.eggObjects = [];    // [{group,mesh,mat,beam}, ...]
+    this.fx = [];            // 找到金蛋时的一次性特效
 
     this.hud = new HuntHUD({ isMobile });
     this.hud.onBoardRequest = () => this._openBoard(false);
@@ -114,6 +120,9 @@ export class TreasureHunt {
 
     this._onVisibility = () => { if (!document.hidden) this._send({ type: C2S.SYNC }); };
     document.addEventListener('visibilitychange', this._onVisibility);
+
+    // 开发模式下把实例挂到 window，方便在控制台调试（生产构建会被摇掉）
+    if (import.meta.env?.DEV) window.__hunt = this;
 
     // 已经进过这个房间且昵称合法：刷新页面后自动回房，不再让人重填
     const stored = lsGet(LS_NICK);
@@ -231,7 +240,7 @@ export class TreasureHunt {
         this._mergePlayers(msg.list);
         break;
       case S2C.HINT:
-        this._onHint(msg.level, msg.text, true);
+        this._onHint(msg.eggIndex, msg.level, msg.text, true);
         break;
       case S2C.FOUND:
         this._onFound(msg);
@@ -285,7 +294,8 @@ export class TreasureHunt {
       const old = this.players.get(p.id);
       next.set(p.id, {
         id: p.id, nick: p.nick, online: p.online !== false,
-        rank: old?.rank ?? p.rank ?? null, ms: old?.ms ?? null,
+        foundCount: p.foundCount ?? 0,
+        lastAt: p.lastAt ?? null,
       });
     }
     this.players = next;
@@ -300,22 +310,22 @@ export class TreasureHunt {
     this.durationMs = s.durationMs || 0;
     this.startedAt = s.startedAt || 0;
     this.endsAt = s.endsAt || 0;
-    this.eggHall = s.eggHall || null;
+    this.eggCount = s.eggCount || 1;
     this.hints = Array.isArray(s.hints) ? s.hints : [];
 
-    // 玩家表（含名次与用时）
+    // 玩家表（含找到几个、最后一个蛋的相对用时）
     const next = new Map();
     for (const p of s.players || []) {
       next.set(p.id, {
         id: p.id, nick: p.nick, online: p.online !== false,
-        rank: p.rank ?? null, ms: p.foundAt != null ? Math.max(0, p.foundAt - this.startedAt) : null,
+        foundCount: p.foundCount ?? 0,
+        lastAt: p.lastAt != null && this.startedAt ? Math.max(0, p.lastAt - this.startedAt) : null,
       });
     }
     this.players = next;
     const me = this.players.get(this.playerId);
-    this.selfFound = !!(me && me.rank);
-    this.selfRank = me?.rank || 0;
-    this.selfMs = me?.ms || 0;
+    this.selfFoundCount = me?.foundCount ?? 0;
+    // selfFoundEggs 从服务端 FOUND 消息累积，这里不覆盖
 
     // 新一局（第一次见到这一轮）：重置本地计数，传送到起点
     const newRound = s.phase === PHASE.RUNNING && s.round !== prevRound;
@@ -325,7 +335,9 @@ export class TreasureHunt {
       this.nextClaimAt = 0;
       this.endedBoardRound = -2;
       this.sawRunning = true;
-      this._removeEgg(); // 新一局重建金蛋（清掉上一局“已找到”的半透明状态）
+      this.selfFoundCount = 0;
+      this.selfFoundEggs = [];
+      this._removeAllEggs(); // 新一局重建金蛋
       this.hud.hideBoard();
       this._teleportToStart();
     }
@@ -337,9 +349,14 @@ export class TreasureHunt {
       if (this.hud.boardVisible && this.hud.boardFinal) this.hud.hideBoard();
     }
 
-    // 金蛋与提示
-    this._syncEgg(s.egg);
-    this._setHintLevel(s.hintLevel ?? -1, false);
+    // 金蛋数组与提示
+    this._syncEggs(s.eggs || []);
+
+    // 局终：把每个蛋的殿名拼起来（服务端只在 ended 时下发 hall）
+    if (s.phase === PHASE.ENDED) {
+      const halls = this.eggs.map((e) => e.hall).filter(Boolean);
+      this.eggHall = halls.length ? halls.join(' / ') : (s.eggHall || null);
+    }
 
     // 局终：出榜单，并交还鼠标（桌面端锁定状态下点不到按钮）
     if (s.phase === PHASE.ENDED && this.endedBoardRound !== s.round) {
@@ -372,39 +389,173 @@ export class TreasureHunt {
 
   // ───────────────────────── 提示 ─────────────────────────
 
-  _onHint(level, text, live) {
-    if (typeof level !== 'number') return;
-    this.hints[level] = text;
-    this._setHintLevel(Math.max(this.hintLevel, level), live);
+  _onHint(eggIndex, level, text, live) {
+    if (typeof eggIndex !== 'number' || typeof level !== 'number') return;
+    
+    // HINT 消息可能在 STATE 之前到达，this.eggs 可能还没初始化
+    // 先确保 eggs 数组足够长
+    while (this.eggs.length <= eggIndex) {
+      this.eggs.push({ x: 0, y: 0, z: 0, hintLevel: -1, hints: [], found: false });
+    }
+    
+    const egg = this.eggs[eggIndex];
+    egg.hintLevel = Math.max(egg.hintLevel ?? -1, level);
+    
+    // 保存提示文本到对应等级
+    if (!egg.hints) egg.hints = [];
+    if (text && level >= 0) {
+      egg.hints[level] = text;
+    }
+    
+    if (live && level >= 0) this.hud.flashHint();
+    this._updateMinimapAndBeam();
   }
 
-  _setHintLevel(level, live) {
-    const grew = level > this.hintLevel;
-    this.hintLevel = level;
-    if (level >= HINT_LEVELS.MINIMAP && this.egg && this.phase === PHASE.RUNNING) {
-      this.minimap?.setMarker?.({ x: this.egg.x, z: this.egg.z });
-    } else {
-      this.minimap?.setMarker?.(null);
+  _updateMinimapAndBeam() {
+    // 小地图：标记所有未找到的、且提示等级达到 MINIMAP 的蛋
+    const markers = [];
+    for (let i = 0; i < this.eggs.length; i++) {
+      const e = this.eggs[i];
+      const obj = this.eggObjects[i];
+      if (!e || e.found) continue;
+      if ((e.hintLevel ?? -1) >= HINT_LEVELS.MINIMAP && this.phase === PHASE.RUNNING) {
+        markers.push({ x: e.x, z: e.z });
+      }
+      // 光柱：提示等级 >= BEAM 且未找到
+      if (obj && obj.beam) {
+        obj.beam.visible = (e.hintLevel ?? -1) >= HINT_LEVELS.BEAM && this.phase === PHASE.RUNNING && !e.found;
+      }
     }
-    if (this.beam) this.beam.visible = level >= HINT_LEVELS.BEAM && this.phase === PHASE.RUNNING;
-    if (grew && live && level >= 0) this.hud.flashHint();
+    this.minimap?.setMarkers?.(markers);
   }
 
   // ───────────────────────── 找到 ─────────────────────────
 
   _onFound(m) {
+    // FOUND 消息：{playerId, nick, eggIndex, foundCount, rank, elapsedMs}
     const p = this.players.get(m.playerId);
-    if (p) { p.rank = m.rank; p.ms = m.elapsedMs; }
+    if (p) {
+      p.foundCount = m.foundCount ?? ((p.foundCount || 0) + 1);
+      p.lastAt = m.elapsedMs ?? null;
+    }
+    
+    const eggIdx = m.eggIndex ?? 0;
+    if (this.eggs[eggIdx]) {
+      this.eggs[eggIdx].found = true;
+    }
+
     if (m.playerId === this.playerId) {
-      this.selfFound = true;
-      this.selfRank = m.rank;
-      this.selfMs = m.elapsedMs;
+      this.selfFoundCount = m.foundCount ?? (this.selfFoundCount + 1);      this.selfFoundEggs.push({ eggIndex: eggIdx, at: m.elapsedMs });
       this.claimPendingUntil = 0;
-      if (this.eggMat) { this.eggMat.transparent = true; this.eggMat.opacity = 0.35; this.eggMat.needsUpdate = true; }
+      
+      // 把找到的蛋变半透明
+      const obj = this.eggObjects[eggIdx];
+      if (obj && obj.mat) {
+        obj.mat.transparent = true;
+        obj.mat.opacity = 0.35;
+        obj.mat.needsUpdate = true;
+      }
+      
       this.hud.goldFlash();
+      this.hud.foundBanner('找到金蛋！', `第 ${this.selfFoundCount}/${this.eggCount} 个 · 用时 ${fmtMs(m.elapsedMs)}`);
       this._playDing();
+      this._spawnFoundFx(eggIdx);
     } else {
-      this.hud.toast(`${m.nick} 找到了金蛋，第 ${m.rank} 名`);
+      this.hud.toast(`${m.nick} 找到了第 ${m.foundCount} 个金蛋`);
+    }
+    
+    this._updateMinimapAndBeam();
+  }
+
+  // ───────────────────────── 找到金蛋的三维特效 ─────────────────────────
+
+  /** 在蛋的位置放一圈金色冲击波 + 一片溅射光点，约 1.1 秒后自动销毁 */
+  _spawnFoundFx(eggIdx) {
+    const e = this.eggs[eggIdx];
+    if (!e) return;
+    const group = new THREE.Group();
+    group.position.set(e.x, e.y, e.z);
+
+    // 两道水平光环，第二道错开扩散，做出层叠的冲击波
+    const rings = [0, 0.18].map((delay) => {
+      const geo = new THREE.RingGeometry(0.42, 0.6, 48);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffd764, transparent: true, opacity: 0.95, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.visible = false;
+      group.add(mesh);
+      return { mesh, delay };
+    });
+
+    // 溅射光点：随机分布在球面上，靠整体放大做出向外飞散
+    const N = 30;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 0.3 + Math.random() * 0.4;
+      pos[i * 3] = Math.cos(a) * r;
+      pos[i * 3 + 1] = (Math.random() - 0.25) * 0.8;
+      pos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const pgeo = new THREE.BufferGeometry();
+    pgeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pmat = new THREE.PointsMaterial({
+      color: 0xffe9a0, size: 0.3, transparent: true, opacity: 1,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+      map: this._sparkTexture(),
+    });
+    const sparks = new THREE.Points(pgeo, pmat);
+    group.add(sparks);
+
+    this.scene.add(group);
+    this.fx.push({ group, rings, sparks, t0: performance.now(), dur: 1100 });
+  }
+
+  /** 圆形光斑贴图（点精灵默认是方块，这里画一个径向渐变的圆点，只生成一次） */
+  _sparkTexture() {
+    if (this._sparkTex) return this._sparkTex;
+    const size = 64;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    const ctx = cv.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.35, 'rgba(255,236,170,0.9)');
+    g.addColorStop(1, 'rgba(255,200,60,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    this._sparkTex = new THREE.CanvasTexture(cv);
+    return this._sparkTex;
+  }
+
+  _updateFx(now) {
+    for (let i = this.fx.length - 1; i >= 0; i--) {
+      const f = this.fx[i];
+      const p = (now - f.t0) / f.dur;
+      if (p >= 1) {
+        this.scene.remove(f.group);
+        f.group.traverse((o) => {
+          o.geometry?.dispose?.();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+          else o.material?.dispose?.();
+        });
+        this.fx.splice(i, 1);
+        continue;
+      }
+      for (const r of f.rings) {
+        const q = Math.min(1, Math.max(0, (p - r.delay) / (1 - r.delay)));
+        r.mesh.visible = q > 0;
+        const s = 1 + q * 9;
+        r.mesh.scale.set(s, s, 1);
+        r.mesh.material.opacity = 0.95 * (1 - q);
+      }
+      const sp = Math.min(1, p / 0.75);
+      f.sparks.scale.setScalar(0.5 + sp * 3.4);
+      f.sparks.material.opacity = Math.max(0, 1 - sp);
+      f.sparks.position.y = -p * 0.5;
     }
   }
 
@@ -445,57 +596,78 @@ export class TreasureHunt {
 
   // ───────────────────────── 金蛋与光柱 ─────────────────────────
 
-  _syncEgg(egg) {
-    if (!egg) { this._removeEgg(); return; }
-    if (this.egg && this.egg.x === egg.x && this.egg.y === egg.y && this.egg.z === egg.z && this.eggGroup) return;
-    this._removeEgg();
-    this.egg = { x: egg.x, y: egg.y, z: egg.z };
+  _syncEggs(eggs) {
+    if (!Array.isArray(eggs) || eggs.length === 0) {
+      this._removeAllEggs();
+      this.eggs = [];
+      return;
+    }
 
-    const group = new THREE.Group();
-    group.position.set(egg.x, egg.y + EGG_HOVER, egg.z);
+    // 保存服务端下发的蛋坐标与状态
+    this.eggs = eggs.map((e, i) => ({
+      x: e.x, y: e.y, z: e.z,
+      hall: e.hall || null,
+      hintLevel: e.hintLevel ?? -1,
+      hints: e.hints || [],
+      found: this.selfFoundEggs.some(f => f.eggIndex === i), // 本地已找到记录
+    }));
 
-    const geo = new THREE.SphereGeometry(0.35, 32, 24);
-    this.eggMat = new THREE.MeshStandardMaterial({
-      color: 0xffc83c, metalness: 0.9, roughness: 0.25,
-      emissive: 0xffc83c, emissiveIntensity: 0.6,
-    });
-    this.eggMesh = new THREE.Mesh(geo, this.eggMat);
-    this.eggMesh.scale.y = 1.3;
-    this.eggMesh.castShadow = false;
-    this.eggMesh.receiveShadow = false;
-    group.add(this.eggMesh);
+    // 重建所有金蛋对象
+    this._removeAllEggs();
+    for (let i = 0; i < this.eggs.length; i++) {
+      const e = this.eggs[i];
+      const group = new THREE.Group();
+      group.position.set(e.x, e.y, e.z);  // 服务端下发的 y 已经包含 EGG_HOVER
 
-    // 光柱：底部落在地面，高 80 米；不随蛋转动
-    const beamGeo = new THREE.CylinderGeometry(0.6, 0.6, 80, 24, 1, true);
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0xffc83c, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide,
-    });
-    this.beam = new THREE.Mesh(beamGeo, beamMat);
-    this.beam.position.set(egg.x, egg.y + 40, egg.z);
-    this.beam.visible = false;
+      const geo = new THREE.SphereGeometry(0.35, 32, 24);
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xffc83c, metalness: 0.9, roughness: 0.25,
+        emissive: 0xffc83c, emissiveIntensity: 0.6,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.scale.y = 1.3;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      group.add(mesh);
 
-    // 已经找到过（例如断线重连后重建）：保持半透明
-    if (this.selfFound) { this.eggMat.transparent = true; this.eggMat.opacity = 0.35; }
+      // 光柱：高 80 米，中心在地面 + 40，底部对齐地面
+      const beamGeo = new THREE.CylinderGeometry(0.6, 0.6, 80, 24, 1, true);
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: 0xffc83c, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide,
+      });
+      const beam = new THREE.Mesh(beamGeo, beamMat);
+      beam.position.set(e.x, e.y - EGG_HOVER + 40, e.z);  // e.y 是金蛋中心，减去悬浮高度，再加光柱半高
+      beam.visible = false;
 
-    this.eggGroup = group;
-    this.scene.add(group);
-    this.scene.add(this.beam);
+      // 已找到：半透明
+      if (e.found) {
+        mat.transparent = true;
+        mat.opacity = 0.35;
+      }
+
+      this.eggObjects.push({ group, mesh, mat, beam });
+      this.scene.add(group);
+      this.scene.add(beam);
+    }
+
+    this._updateMinimapAndBeam();
   }
 
-  _removeEgg() {
-    if (this.eggGroup) {
-      this.scene.remove(this.eggGroup);
-      this.eggMesh?.geometry.dispose();
-      this.eggMat?.dispose();
+  _removeAllEggs() {
+    for (const obj of this.eggObjects) {
+      if (obj.group) {
+        this.scene.remove(obj.group);
+        obj.mesh?.geometry.dispose();
+        obj.mat?.dispose();
+      }
+      if (obj.beam) {
+        this.scene.remove(obj.beam);
+        obj.beam.geometry.dispose();
+        obj.beam.material.dispose();
+      }
     }
-    if (this.beam) {
-      this.scene.remove(this.beam);
-      this.beam.geometry.dispose();
-      this.beam.material.dispose();
-    }
-    this.eggGroup = this.eggMesh = this.eggMat = this.beam = null;
-    this.egg = null;
-    this.minimap?.setMarker?.(null);
+    this.eggObjects = [];
+    this.minimap?.setMarkers?.([]);
   }
 
   // ───────────────────────── 每帧 ─────────────────────────
@@ -516,10 +688,15 @@ export class TreasureHunt {
     const t = now / 1000;
 
     // 金蛋动画：绕 Y 轴 1 rad/s，上下浮动 ±0.1 m
-    if (this.eggMesh) {
-      this.eggMesh.rotation.y = t * 1.0;
-      this.eggMesh.position.y = Math.sin(t * 2.2) * 0.1;
+    for (const obj of this.eggObjects) {
+      if (obj.mesh) {
+        obj.mesh.rotation.y = t * 1.0;
+        obj.mesh.position.y = Math.sin(t * 2.2) * 0.1;
+      }
     }
+
+    // 找到金蛋时的一次性特效
+    if (this.fx.length) this._updateFx(now);
 
     if (this.fatal) return;
     if (!this.joined) {
@@ -571,15 +748,34 @@ export class TreasureHunt {
     const m = Math.floor(left / 60000);
     const s = Math.floor((left % 60000) / 1000);
     const clock = `${m}:${String(s).padStart(2, '0')}`;
-    const latest = this.hints.length ? this.hints[this.hints.length - 1] : '';
-    const hint = latest || '提示马上出现…';
-    if (this.selfFound) {
-      const ms = this.selfMs;
-      const fm = Math.floor(ms / 60000);
-      const fs = Math.floor((ms % 60000) / 1000);
-      this.hud.setBar(`第 ${this.selfRank} 名 · ${fm}:${String(fs).padStart(2, '0')}`, `剩余 ${clock} · 已找到 ${found}/${total} · 可以继续逛`);
+    
+    // 提示：每个未找到的蛋各占一行，多行时轮流滚动显示（约 3.5 秒换一条）
+    const lines = [];
+    for (let i = 0; i < this.eggs.length; i++) {
+      const e = this.eggs[i];
+      if (e.found || (e.hintLevel ?? -1) < 0) continue;
+      const txt = e.hints?.[e.hintLevel] || '';
+      if (!txt) continue;
+      lines.push(this.eggCount > 1 ? `第${i + 1}个蛋：${txt}` : txt);
+    }
+    let hint;
+    if (lines.length === 1) {
+      hint = lines[0];
+    } else if (lines.length > 1) {
+      const idx = Math.floor(Date.now() / 3500) % lines.length;
+      hint = `${lines[idx]}　（${idx + 1}/${lines.length}）`;
+    } else if (this.selfFoundCount >= this.eggCount) {
+      hint = '任务完成，可以四处逛逛';
+    } else if (this.eggs.length > 0) {
+      hint = '提示马上出现…';
     } else {
-      this.hud.setBar(`剩余 ${clock} · 已找到 ${found}/${total}`, hint);
+      hint = '';
+    }
+
+    if (this.selfFoundCount > 0) {
+      this.hud.setBar(`剩余 ${clock} · 我 ${this.selfFoundCount}/${this.eggCount}`, hint);
+    } else {
+      this.hud.setBar(`剩余 ${clock} · 我 0/${this.eggCount}`, hint);
     }
   }
 
@@ -593,7 +789,15 @@ export class TreasureHunt {
     const idle = now - this.lastMoveAt > POS_REPORT.IDLE_STOP_MS;
     if (idle && this.lastPosSentAt > this.lastMoveAt) return; // 站定超过 2 秒，且最终位置已报过
     let interval = POS_REPORT.INTERVAL_MS;
-    if (this.egg && this.phase === PHASE.RUNNING && Math.hypot(p.x - this.egg.x, p.z - this.egg.z) < NEAR_EGG_M) interval = 400;
+    // 离任一未找到的蛋近时，加密位置上报（400 ms）
+    if (this.phase === PHASE.RUNNING) {
+      for (const e of this.eggs) {
+        if (!e.found && Math.hypot(p.x - e.x, p.z - e.z) < NEAR_EGG_M) {
+          interval = 400;
+          break;
+        }
+      }
+    }
     if (now - this.lastPosSentAt >= interval) this._sendPos(now);
   }
 
@@ -608,15 +812,29 @@ export class TreasureHunt {
   }
 
   _checkClaim(now, sNow) {
-    if (this.phase !== PHASE.RUNNING || this.selfFound || !this.egg) return;
+    if (this.phase !== PHASE.RUNNING || this.selfFoundCount >= this.eggCount) return;
     if (sNow < this.startedAt || sNow > this.endsAt) return;
-    if (this.claimsUsed >= CLAIM.MAX_CLAIMS) return;
+    // 每局允许多次提交：蛋越多留的余量越大（服务端最多受理 5 次）
+    const maxClaims = Math.min(CLAIM.MAX_CLAIMS + 2, Math.max(CLAIM.MAX_CLAIMS, this.eggCount + 2));
+    if (this.claimsUsed >= maxClaims) return;
     if (now < this.claimPendingUntil || now < this.nextClaimAt) return;
+    
     const p = this.camera.position;
-    const h = Math.hypot(p.x - this.egg.x, p.z - this.egg.z);
-    const v = Math.abs(p.y - (this.egg.y + EGG_HOVER));
-    if (h >= CLAIM.CLIENT_H || v >= CLAIM.CLIENT_V) return;
+    // 检测是否靠近任一未找到的蛋
+    let nearAny = false;
+    for (const e of this.eggs) {
+      if (e.found) continue;
+      const h = Math.hypot(p.x - e.x, p.z - e.z);
+      // e.y 是服务端下发的蛋心高度（已含悬浮量），与服务器判定保持一致
+      const v = Math.abs(p.y - e.y);
+      if (h < CLAIM.CLIENT_H && v < CLAIM.CLIENT_V) {
+        nearAny = true;
+        break;
+      }
+    }
+    if (!nearAny) return;
     if (this.wsState !== 'open') return;
+    
     // 先保证服务器手里的位置足够新：刚报过且几乎没挪动就直接用；否则补发一条（服务器限频 350 ms，所以要隔开）
     const age = now - this.lastPosSentAt;
     const drift = this.lastSentPos ? Math.hypot(p.x - this.lastSentPos.x, p.z - this.lastSentPos.z) : Infinity;
@@ -635,14 +853,27 @@ export class TreasureHunt {
 
   _openBoard(final) {
     const rows = [...this.players.values()]
-      .map((p) => ({ rank: p.rank || 0, nick: p.nick, ms: p.ms ?? 0, me: p.id === this.playerId }))
+      .map((p) => ({
+        foundCount: p.foundCount || 0,
+        lastAt: p.lastAt ?? 0,
+        nick: p.nick,
+        me: p.id === this.playerId,
+      }))
       .sort((a, b) => {
-        if (a.rank && b.rank) return a.rank - b.rank;
-        if (a.rank) return -1;
-        if (b.rank) return 1;
-        return a.nick.localeCompare(b.nick, 'zh');
-      });
-    this.hud.showBoard(rows, { final, eggHall: this.eggHall });
+        if (b.foundCount !== a.foundCount) return b.foundCount - a.foundCount;
+        if (a.lastAt === 0 && b.lastAt === 0) return 0;
+        if (a.lastAt === 0) return 1;
+        if (b.lastAt === 0) return -1;
+        return a.lastAt - b.lastAt;
+      })
+      .map((p, i) => ({
+        rank: p.foundCount > 0 ? i + 1 : null,
+        nick: p.nick,
+        ms: p.lastAt ?? 0,
+        foundCount: p.foundCount,
+        me: p.me,
+      }));
+    this.hud.showBoard(rows, final ? (this.eggHall || null) : null, this.eggCount);
   }
 
   // ───────────────────────── 销毁 ─────────────────────────
@@ -653,7 +884,9 @@ export class TreasureHunt {
     clearTimeout(this.reconnectTimer);
     document.removeEventListener('visibilitychange', this._onVisibility);
     if (this.ws) { try { this.ws.onclose = null; this.ws.close(); } catch { /* ignore */ } this.ws = null; }
-    this._removeEgg();
+    this._removeAllEggs();
+    for (const f of this.fx) this.scene.remove(f.group);
+    this.fx = [];
     this.hud?.dispose();
   }
 }

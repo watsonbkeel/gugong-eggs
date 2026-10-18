@@ -63,7 +63,8 @@ export function createGameServer(opt = {}) {
           const file = path.join(__dirname, f[0]);
           fs.readFile(file, (err, buf) => {
             if (err) { res.writeHead(404); return res.end('not found'); }
-            res.writeHead(200, { 'Content-Type': MIME[f[1]], 'Cache-Control': 'no-cache' });
+            // 控制台是手改的单文件，改完要能立刻生效：禁掉浏览器缓存
+            res.writeHead(200, { 'Content-Type': MIME[f[1]], 'Cache-Control': 'no-store, must-revalidate' });
             res.end(buf);
           });
           return;
