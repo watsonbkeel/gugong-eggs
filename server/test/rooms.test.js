@@ -370,21 +370,36 @@ test('控制台口令校验与 room_state 内容', () => {
   assert.equal(rs.players.length, 3);
 });
 
-test('60 分钟无连接的房间被销毁；有连接的保留', () => {
+test('空闲房间回收：等待中闲置 15 分钟销毁；有人在线的保留', () => {
   const ctx = setup();
   const { mgr, clock } = ctx;
   const a = mgr.createRoom();
   const b = mgr.createRoom();
   const c = join(mgr, b.code, '小明同学');
-  clock.advance(59 * 60000); mgr.cleanup();
-  assert.ok(mgr.getRoom(a.code));
+  clock.advance(14 * 60000); mgr.cleanup();
+  assert.ok(mgr.getRoom(a.code), '15 分钟内应保留');
   clock.advance(2 * 60000); mgr.cleanup();
   assert.equal(mgr.getRoom(a.code), null);
   assert.ok(mgr.getRoom(b.code), '有人在线的房间不应被销毁');
-  // 断线后 60 分钟再销毁
+  // 断线后从最后一次活动算起 15 分钟
   c.readyState = 3; mgr.handleClose(c);
-  clock.advance(59 * 60000); mgr.cleanup(); assert.ok(mgr.getRoom(b.code));
+  clock.advance(14 * 60000); mgr.cleanup(); assert.ok(mgr.getRoom(b.code));
   clock.advance(2 * 60000); mgr.cleanup(); assert.equal(mgr.getRoom(b.code), null);
+});
+
+test('已结束且没人连着的房间下一次 cleanup 就回收', () => {
+  const ctx = setup();
+  const { mgr, clock } = ctx;
+  const { room, R, h, players } = startRound(ctx);
+  host(mgr, h, C2S.HOST_END, room);
+  assert.equal(R.phase, PHASE.ENDED);
+  clock.advance(1000); mgr.cleanup();
+  assert.ok(mgr.getRoom(R.code), '还有连接时保留，老师才能点「再来一局」');
+
+  h.readyState = 3; mgr.handleClose(h);
+  for (const p of players) { p.readyState = 3; mgr.handleClose(p); }
+  mgr.cleanup();
+  assert.equal(mgr.getRoom(R.code), null);
 });
 
 test('health 统计', () => {

@@ -8,7 +8,8 @@ import {
   hintText, hintLevelAt, sanitizeNick, sanitizeLoc,
 } from '../shared/protocol.js';
 
-const ROOM_IDLE_DESTROY_MS = 60 * 60 * 1000;
+// 没人连着的房间：等待/进行中保留 15 分钟（够学生断线重连），已结束的到点就回收
+const ROOM_IDLE_DESTROY_MS = 15 * 60 * 1000;
 const OFFLINE_EVICT_MS = 30 * 1000;
 
 const randHex = (n) => crypto.randomBytes(n).toString('hex');
@@ -92,12 +93,17 @@ export class RoomManager {
     return { ok: true, rooms: this.rooms.size, running: this.runningCount(), players };
   }
 
-  /** 每分钟调用：销毁 60 分钟无任何连接的房间 */
+  /** 每分钟调用：回收没人连着的房间。
+   *  - 已结束且一个人都没连着：立刻回收（榜单已经没人看了，留着只占内存）
+   *  - 其他阶段没人连着：闲置 15 分钟后回收（留出断线重连的时间）
+   *  - 还有连接（含老师控制台）的房间一律保留，否则「再来一局」「切回旧房间」会失效
+   */
   cleanup() {
     const t = this.now();
     for (const [code, r] of this.rooms) {
-      if (this._connCount(r) > 0) { r.lastActiveAt = t; continue; }
-      if (t - r.lastActiveAt >= ROOM_IDLE_DESTROY_MS) this._destroy(r);
+      if (this._connCount(r) > 0) continue;
+      const idle = t - r.lastActiveAt;
+      if (r.phase === PHASE.ENDED || idle >= ROOM_IDLE_DESTROY_MS) this._destroy(r);
     }
   }
 
@@ -536,9 +542,14 @@ export class RoomManager {
       running: this.runningCount(),
       maxRunning: this.maxRunning,
       maxPlayers: this.maxPlayers,
-      rooms: [...this.rooms.values()].map((r) => ({
-        code: r.code, phase: r.phase, count: r.players.size, online: [...r.players.values()].filter((p) => p.conn).length,
-      })),
+      rooms: [...this.rooms.values()]
+        .map((r) => ({
+          code: r.code, phase: r.phase, count: r.players.size,
+          online: [...r.players.values()].filter((p) => p.conn).length,
+          conns: this._connCount(r),
+        }))
+        // 已结束又一个人都没连着的房间不列出来（下一次 cleanup 会真正回收）
+        .filter((r) => !(r.phase === PHASE.ENDED && r.conns === 0)),
     };
     return state;
   }
